@@ -35,8 +35,8 @@ def predict(model, loader, device):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", required=True)
-    ap.add_argument("--splits", default="splits.csv")
+    ap.add_argument("--root", default="data", help="data/ folder that manifest paths are relative to")
+    ap.add_argument("--manifest", default="processed/manifest.csv", help="relative to --root")
     ap.add_argument("--arch", default="mobilenet_v3_small",
                     choices=["mobilenet_v3_small", "resnet18", "efficientnet_lite0"])
     ap.add_argument("--grouping", default="grouped6", choices=["full10", "grouped6", "grouped5"])
@@ -54,9 +54,9 @@ def main():
     set_seed(a.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     names = class_names(a.grouping)
-    splits = Path(a.root) / a.splits
+    manifest = Path(a.root) / a.manifest
 
-    ds = {s: SplitDataset(a.root, splits, s, a.grouping,
+    ds = {s: SplitDataset(a.root, manifest, s, a.grouping,
                           build_transform(a.img_size, s == "train", a.aug))
           for s in ["train", "val", "test"]}
     dl = {s: DataLoader(ds[s], batch_size=a.batch_size, shuffle=(s == "train"),

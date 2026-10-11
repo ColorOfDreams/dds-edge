@@ -10,14 +10,13 @@ from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
-import pandas as pd
 import torch
 from onnxruntime.quantization import (CalibrationDataReader, QuantFormat, QuantType,
                                       quantize_static)
 from PIL import Image
 from sklearn.metrics import accuracy_score, f1_score
 
-from dds_edge.dl.common import GROUPINGS, build_model, build_transform, class_names
+from dds_edge.dl.common import build_model, build_transform, class_names, load_manifest
 
 
 def export_onnx(model, img_size, path):
@@ -71,8 +70,8 @@ def evaluate(path, arrays, labels, threads):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", required=True)
-    ap.add_argument("--splits", default="splits.csv")
+    ap.add_argument("--root", default="data", help="data/ folder that manifest paths are relative to")
+    ap.add_argument("--manifest", default="processed/manifest.csv", help="relative to --root")
     ap.add_argument("--run", required=True, help="run name under runs/")
     ap.add_argument("--calib", type=int, default=200)
     ap.add_argument("--threads", type=int, default=1)
@@ -87,7 +86,7 @@ def main():
     fp32, int8 = out / "model_fp32.onnx", out / "model_int8.onnx"
     export_onnx(model, img_size, fp32)
 
-    df = pd.read_csv(Path(a.root) / a.splits)
+    df = load_manifest(Path(a.root) / a.manifest, grouping)
     tf = build_transform(img_size, train=False, aug=False)
     calib_paths = df[df["split"] == "train"].sample(a.calib, random_state=0)["path"]
     calib = [load_array(a.root, p, tf) for p in calib_paths]
@@ -103,8 +102,7 @@ def main():
                     weight_type=QuantType.QInt8, activation_type=QuantType.QUInt8)
 
     test = df[df["split"] == "test"]
-    mapping = GROUPINGS[grouping]
-    labels = [class_names(grouping).index(mapping[c]) for c in test["classname"]]
+    labels = [names.index(c) for c in test["label"]]
     arrays = [load_array(a.root, p, tf) for p in test["path"]]
 
     res = {"fp32": evaluate(fp32, arrays, labels, a.threads),

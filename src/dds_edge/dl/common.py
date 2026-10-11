@@ -62,15 +62,33 @@ def build_transform(img_size: int, train: bool, aug: bool):
     ])
 
 
+MANIFEST_COLUMNS = ["path", "label", "split", "group", "source", "raw_label"]
+
+
+def load_manifest(csv_path, grouping: str) -> pd.DataFrame:
+    """Read the manifest and check that every label belongs to `grouping`."""
+    df = pd.read_csv(csv_path)
+    missing = [c for c in MANIFEST_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(f"{csv_path}: missing columns {missing}")
+    unknown = sorted(set(df["label"]) - set(class_names(grouping)))
+    if unknown:
+        raise ValueError(f"{csv_path}: labels {unknown} not in grouping '{grouping}'; "
+                         f"regenerate with prepare_data --grouping {grouping}")
+    return df
+
+
 class SplitDataset(Dataset):
-    def __init__(self, root, splits_csv, split, grouping, transform):
-        df = pd.read_csv(splits_csv)
+    """Images of one split. `root` is the data/ folder that manifest paths are relative to."""
+
+    def __init__(self, root, manifest_csv, split, grouping, transform):
+        df = load_manifest(manifest_csv, grouping)
         df = df[df["split"] == split].reset_index(drop=True)
         self.root = Path(root)
         self.paths = df["path"].tolist()
+        self.sources = df["source"].tolist()
         names = class_names(grouping)
-        mapping = GROUPINGS[grouping]
-        self.labels = [names.index(mapping[c]) for c in df["classname"]]
+        self.labels = [names.index(c) for c in df["label"]]
         self.transform = transform
 
     def __len__(self):
