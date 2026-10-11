@@ -12,7 +12,7 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from torch.utils.data import DataLoader
 
 from dds_edge.dl.common import (SplitDataset, build_model, build_transform, class_names,
-                    count_params)
+                    count_macs, count_params)
 
 
 def set_seed(s):
@@ -27,7 +27,7 @@ def predict(model, loader, device):
     model.eval()
     ys, ps = [], []
     for x, y in loader:
-        out = model(x.to(device))
+        out = model(x.to(device, non_blocking=True, memory_format=torch.channels_last))
         ps.extend(out.argmax(1).cpu().tolist())
         ys.extend(y.tolist())
     return np.array(ys), np.array(ps)
@@ -38,7 +38,7 @@ def main():
     ap.add_argument("--root", default="data", help="data/ folder that manifest paths are relative to")
     ap.add_argument("--manifest", default="processed/manifest.csv", help="relative to --root")
     ap.add_argument("--arch", default="mobilenet_v3_small",
-                    choices=["mobilenet_v3_small", "resnet18", "efficientnet_lite0"])
+                    choices=["mobilenet_v3_small", "resnet18", "resnet50", "vgg16", "efficientnet_lite0"])
     ap.add_argument("--grouping", default="grouped6", choices=["full10", "grouped6", "grouped5"])
     ap.add_argument("--img_size", type=int, default=224)
     ap.add_argument("--epochs", type=int, default=10)
@@ -59,11 +59,17 @@ def main():
     ds = {s: SplitDataset(a.root, manifest, s, a.grouping,
                           build_transform(a.img_size, s == "train", a.aug))
           for s in ["train", "val", "test"]}
-    dl = {s: DataLoader(ds[s], batch_size=a.batch_size, shuffle=(s == "train"),
-                        num_workers=a.workers, pin_memory=True)
+    cuda = device.type == "cuda"
+    torch.backends.cudnn.benchmark = cuda  # autotune conv kernels for fixed-size inputs
+    loader_kw = dict(num_workers=a.workers, pin_memory=cuda)
+    if a.workers > 0:  # keep workers alive between epochs and prefetch batches
+        loader_kw.update(persistent_workers=True, prefetch_factor=4)
+    dl = {s: DataLoader(ds[s], batch_size=a.batch_size * (1 if s == "train" else 2),
+                        shuffle=(s == "train"), drop_last=(s == "train"), **loader_kw)
           for s in ds}
 
-    model = build_model(a.arch, len(names), a.pretrained).to(device)
+    model = build_model(a.arch, len(names), a.pretrained).to(
+        device, memory_format=torch.channels_last)
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs)
@@ -78,7 +84,8 @@ def main():
         model.train()
         t0, loss_sum, n = time.time(), 0.0, 0
         for x, y in dl["train"]:
-            x, y = x.to(device), y.to(device)
+            x = x.to(device, non_blocking=True, memory_format=torch.channels_last)
+            y = y.to(device, non_blocking=True)
             opt.zero_grad(set_to_none=True)
             with torch.autocast(device_type=device.type, enabled=use_amp):
                 loss = criterion(model(x), y)
@@ -109,6 +116,7 @@ def main():
     metrics = {
         "args": vars(a),
         "n_params": count_params(model),
+        "macs": count_macs(model, a.img_size),
         "best_val_macro_f1": best_f1,
         "test_acc": accuracy_score(yt, pt),
         "test_macro_f1": f1_score(yt, pt, average="macro"),

@@ -108,6 +108,14 @@ def build_model(arch: str, num_classes: int, pretrained: bool):
         w = models.ResNet18_Weights.DEFAULT if pretrained else None
         m = models.resnet18(weights=w)
         m.fc = nn.Linear(m.fc.in_features, num_classes)
+    elif arch == "resnet50":
+        w = models.ResNet50_Weights.DEFAULT if pretrained else None
+        m = models.resnet50(weights=w)
+        m.fc = nn.Linear(m.fc.in_features, num_classes)
+    elif arch == "vgg16":
+        w = models.VGG16_Weights.DEFAULT if pretrained else None
+        m = models.vgg16(weights=w)
+        m.classifier[6] = nn.Linear(m.classifier[6].in_features, num_classes)
     elif arch == "efficientnet_lite0":
         import timm  # optional dependency
         m = timm.create_model("efficientnet_lite0", pretrained=pretrained, num_classes=num_classes)
@@ -118,3 +126,16 @@ def build_model(arch: str, num_classes: int, pretrained: bool):
 
 def count_params(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters())
+
+
+def count_macs(model: nn.Module, img_size: int) -> int:
+    """Multiply-accumulates for one 3 x img_size x img_size image (conv + linear layers only)."""
+    from torch.utils.flop_counter import FlopCounterMode
+    was_training = model.training
+    model.eval()
+    p = next(model.parameters())
+    x = torch.zeros(1, 3, img_size, img_size, device=p.device)
+    with torch.no_grad(), FlopCounterMode(display=False) as fc:
+        model(x)
+    model.train(was_training)
+    return fc.get_total_flops() // 2

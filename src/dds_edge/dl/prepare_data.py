@@ -53,6 +53,23 @@ def validate(df: pd.DataFrame, grouping: str, data_dir: Path | None):
         assert not missing, f"missing files, e.g. {missing[:3]} (check --img_dir)"
 
 
+def report_balance(df: pd.DataFrame):
+    """Print class shares per split and the 'always predict the train majority class' baseline."""
+    counts = df.groupby(["split", "label"]).size().unstack(fill_value=0)
+    share = (counts.div(counts.sum(axis=1), axis=0) * 100).round(1)
+    print("\nclass share per split (%):")
+    print(share)
+    train = counts.loc["train"]
+    k = len(train)
+    print(f"\ntrain imbalance: max/min = {train.max() / train.min():.2f}, "
+          f"majority class '{train.idxmax()}' = {train.max() / train.sum():.1%} of train")
+    maj = train.idxmax()
+    for s in [x for x in ("val", "test") if x in counts.index]:
+        p = counts.loc[s, maj] / counts.loc[s].sum()
+        macro_f1 = (2 * p / (1 + p)) / k  # only the majority class has F1 > 0
+        print(f"majority baseline on {s}: acc {p:.4f}, macro-F1 {macro_f1:.4f}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data_dir", default="data", help="folder that manifest paths are relative to")
@@ -79,6 +96,7 @@ def main():
     per = df.groupby("split")["group"].nunique()
     print(f"groups -> " + ", ".join(f"{s} {per.get(s, 0)}" for s in ("train", "val", "test")))
     print(df.groupby(["split", "label"]).size().unstack(fill_value=0))
+    report_balance(df)
     print(f"wrote {out}")
 
 

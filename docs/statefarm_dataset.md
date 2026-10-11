@@ -7,14 +7,15 @@
 | Nguồn | Kaggle competition *State Farm Distracted Driver Detection* (2016) |
 | Bài toán | Phân loại ảnh (image classification) hành vi của tài xế: 10 lớp |
 | Dữ liệu | Ảnh RGB chụp từ camera gắn trong xe (góc nhìn từ bên phải/trước tài xế), trích từ video |
-| Kích thước ảnh | 640 × 480 px, JPEG |
-| Số ảnh train | ~22.424 ảnh |
-| Số ảnh test | ~79.726 ảnh (**không có nhãn**, chỉ dùng để nộp Kaggle) |
-| Số tài xế (subject) | 26 người trong tập train (mã `p002`, `p012`, ... `p081`) |
+| Kích thước ảnh | **Tất cả 640 × 480 px** (rộng × cao, tỉ lệ 4:3), RGB, JPEG |
+| Số ảnh train (có nhãn) | **22.424** ảnh |
+| Số ảnh test | **79.726** ảnh (**không có nhãn**, chỉ dùng để nộp Kaggle, dự án không dùng) |
+| Số tài xế (subject) | **26** người trong tập train (mã `p002`, `p012`, ... `p081`) |
+| Dung lượng ảnh train | 0,89 GB (trung bình 41 KB/ảnh, từ 21 đến 57 KB) |
 | Giấy phép | Chỉ dùng theo điều khoản cuộc thi Kaggle (cần accept rules; ghi rõ trong báo cáo) |
 
-> Lưu ý: số liệu trên là số liệu công bố của cuộc thi; hãy đếm lại trên bản tải về của bạn
-> (`find data/raw/statefarm/imgs/train -name "*.jpg" | wc -l`).
+> Các số trên đã được đo trên bản tải về (đọc header của cả 22.424 ảnh train), không phải số công bố.
+> Số 4,3 GB của file zip Kaggle chủ yếu là 79.726 ảnh `test` không nhãn.
 
 ## 2. Cấu trúc thư mục (cách gán nhãn bằng thư mục)
 
@@ -66,17 +67,57 @@ Ngoài nhãn theo thư mục, file này cho biết **ai** là người trong ả
 | `classname` | `c0` | Nhãn lớp (trùng tên thư mục) |
 | `img` | `img_44733.jpg` | Tên file ảnh |
 
-## 3. Điểm cần lưu ý khi dùng
+## 3. Thống kê đo được trên dữ liệu
+
+### Theo tài xế
+- Số ảnh mỗi tài xế: nhỏ nhất **346** (`p072`), trung vị **823**, lớn nhất **1.237** (`p021`). Chênh nhau gấp khoảng 3,6 lần.
+- Tài xế nhiều ảnh nhất: p021 (1.237), p022 (1.233), p024 (1.226), p026 (1.196). Ít nhất: p072 (346), p042 (591), p041 (605), p039 (651).
+- Mỗi tài xế đều có đủ 10 lớp (không có ô tài xế × lớp nào bằng 0). Số ảnh mỗi ô tài xế × lớp: trung vị 82, nhỏ nhất 2, lớn nhất 182.
+
+### Theo lớp gốc (10 lớp)
+| Lớp | Số ảnh | Lớp | Số ảnh |
+|---|---|---|---|
+| c0 | 2.489 | c5 | 2.312 |
+| c1 | 2.267 | c6 | 2.325 |
+| c2 | 2.317 | c7 | 2.002 |
+| c3 | 2.346 | c8 | 1.911 |
+| c4 | 2.326 | c9 | 2.129 |
+
+### Về video
+Bộ dữ liệu **không có thông tin video** (không mã video, không thời gian). Chỉ có tên ảnh `img_N.jpg` và mã tài xế.
+Ảnh được trích từ video nên các ảnh cùng tài xế và cùng lớp rất giống nhau, nhưng không biết ảnh nào cùng một đoạn video.
+Số `N` trong tên ảnh (0 đến 102.147) là số thứ tự chung của cả train lẫn test, không dùng để suy ra video.
+
+### Cách chia trong dự án (seed 42, theo tài xế)
+| Tập | Tài xế | Số ảnh |
+|---|---|---|
+| train | 18 tài xế (p002, p012, p014, p015, p016, p024, p026, ...) | 15.457 |
+| val | p021, p022, p039, p056 | 3.915 |
+| test | p035, p042, p050, p081 | 3.052 |
+
+Phân bố lớp sau khi gộp `grouped6` (số ảnh):
+
+| split | normal | phone | device_ops | eat_drink | reach_grooming | talk_passenger |
+|---|---|---|---|---|---|---|
+| train | 1.703 | 6.436 | 1.587 | 1.611 | 2.684 | 1.436 |
+| val | 410 | 1.614 | 405 | 400 | 684 | 402 |
+| test | 376 | 1.206 | 320 | 314 | 545 | 291 |
+
+Ở train, `phone` chiếm 41,6% và tỉ lệ lớn nhất / nhỏ nhất là 4,48. Gộp nhãn chính là nguyên nhân gây mất cân bằng, vì 10 lớp gốc khá đều.
+Mốc "luôn đoán `phone`": test accuracy 0,3952, macro-F1 0,0944.
+
+## 4. Điểm cần lưu ý khi dùng
 
 - **Rò rỉ dữ liệu theo người (subject leakage):** các ảnh của cùng một tài xế rất giống nhau (trích từ video liên tiếp).
   Nếu chia ngẫu nhiên theo ảnh thì val/test chứa cùng người với train → độ chính xác ảo.
   → Phải chia theo `subject` (xem `python -m dds_edge.dl.prepare_data`).
-- **Phân bố lớp tương đối cân bằng** (~2.000–2.500 ảnh/lớp), nhưng số ảnh/tài xế không đều.
+- **10 lớp gốc tương đối cân bằng** (1.911–2.489 ảnh/lớp), nhưng số ảnh/tài xế không đều (346–1.237). Sau khi gộp `grouped6` thì mất cân bằng (xem mục 3).
+- **Tập val và test chỉ có 4 tài xế mỗi tập**, nên điểm dao động theo người; đừng đọc kỹ các chênh lệch nhỏ.
 - **Không lật ngang (horizontal flip) khi augmentation:** lật ảnh làm đổi tay trái ↔ tay phải
   (`c1↔c3`, `c2↔c4`) → sai nhãn.
 - Tập `test` của Kaggle không có nhãn; đánh giá cuối cùng cần giữ riêng một nhóm tài xế làm test.
 
-## 4. Cách gộp nhãn trong dự án (`src/dds_edge/dl/common.py`)
+## 5. Cách gộp nhãn trong dự án (`src/dds_edge/dl/common.py`)
 
 Dự án định nghĩa các "grouping" để thử nghiệm ảnh hưởng của việc gộp lớp:
 
@@ -86,4 +127,4 @@ Dự án định nghĩa các "grouping" để thử nghiệm ảnh hưởng củ
 | `grouped6` | 6 | `normal`=c0; `phone`=c1–c4; `device_ops`=c5; `eat_drink`=c6; `reach_grooming`=c7+c8; `talk_passenger`=c9 |
 | `grouped5` | 5 | `normal`=c0; `phone`=c1–c4; `reach_other`=c5+c7+c8; `eat_drink`=c6; `talk_passenger`=c9 |
 
-Việc gộp được thực hiện **trong code (mapping nhãn lúc load)**, không đổi cấu trúc thư mục gốc.
+Việc gộp được thực hiện **lúc sinh manifest** (`prepare_data --grouping ...`): cột `label` lấy từ bảng ánh xạ, cột `raw_label` giữ nguyên `c0`–`c9`. Cấu trúc thư mục gốc không đổi. Xem [manifest.md](manifest.md).

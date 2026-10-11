@@ -16,7 +16,8 @@ from onnxruntime.quantization import (CalibrationDataReader, QuantFormat, QuantT
 from PIL import Image
 from sklearn.metrics import accuracy_score, f1_score
 
-from dds_edge.dl.common import build_model, build_transform, class_names, load_manifest
+from dds_edge.dl.common import (build_model, build_transform, class_names, count_macs, count_params,
+                                load_manifest)
 
 
 def export_onnx(model, img_size, path):
@@ -105,7 +106,8 @@ def main():
     labels = [names.index(c) for c in test["label"]]
     arrays = [load_array(a.root, p, tf) for p in test["path"]]
 
-    res = {"fp32": evaluate(fp32, arrays, labels, a.threads),
+    res = {"n_params": count_params(model), "macs": count_macs(model, img_size),
+           "fp32": evaluate(fp32, arrays, labels, a.threads),
            "int8": evaluate(int8, arrays, labels, a.threads),
            "threads": a.threads, "note": "CPU proxy, not an edge device"}
     (out / "quant_results.json").write_text(json.dumps(res, indent=2))

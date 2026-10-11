@@ -52,7 +52,7 @@ Linh hoạt, lồng nhau được. Nhiều định dạng chuẩn dựa trên JS
 - Ưu: biểu diễn được mọi loại nhãn, dễ đọc bằng mọi ngôn ngữ.
 - Nhược: không có schema chuẩn nếu tự tạo; file lớn khó mở/sửa tay.
 - Biến thể: **JSONL** (mỗi dòng một JSON) – tiện stream, dùng nhiều cho LLM/VLM dataset.
-
+V
 ### 2.4 XML
 Mỗi ảnh một file XML. Cũ nhưng còn phổ biến (xem Pascal VOC bên dưới).
 
