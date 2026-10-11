@@ -1,0 +1,10 @@
+torch>=2.3
+torchvision
+pandas
+scikit-learn
+pillow
+numpy
+onnx
+onnxruntime
+timm   # only needed for --arch efficientnet_lite0
+pytest

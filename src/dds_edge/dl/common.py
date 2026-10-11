@@ -1,0 +1,102 @@
+"""Shared helpers: class groupings, transforms, dataset, model factory."""
+from pathlib import Path
+
+import pandas as pd
+import torch
+import torch.nn as nn
+from PIL import Image
+from torch.utils.data import Dataset
+from torchvision import models
+from torchvision import transforms as T
+
+MEAN = (0.485, 0.456, 0.406)
+STD = (0.229, 0.224, 0.225)
+
+# State Farm classes:
+# c0 safe driving, c1 texting-right, c2 phone-right, c3 texting-left, c4 phone-left,
+# c5 operating radio, c6 drinking, c7 reaching behind, c8 hair/makeup, c9 talking to passenger
+GROUPINGS = {
+    "full10": {f"c{i}": f"c{i}" for i in range(10)},
+    "grouped6": {
+        "c0": "normal",
+        "c1": "phone", "c2": "phone", "c3": "phone", "c4": "phone",
+        "c5": "device_ops",
+        "c6": "eat_drink",
+        "c7": "reach_grooming", "c8": "reach_grooming",
+        "c9": "talk_passenger",
+    },
+    "grouped5": {
+        "c0": "normal",
+        "c1": "phone", "c2": "phone", "c3": "phone", "c4": "phone",
+        "c5": "reach_other", "c7": "reach_other", "c8": "reach_other",
+        "c6": "eat_drink",
+        "c9": "talk_passenger",
+    },
+}
+
+
+def class_names(grouping: str):
+    names = []
+    for c in sorted(GROUPINGS[grouping]):
+        n = GROUPINGS[grouping][c]
+        if n not in names:
+            names.append(n)
+    return names
+
+
+def build_transform(img_size: int, train: bool, aug: bool):
+    # NOTE: no horizontal flip on purpose. Flipping swaps left/right-hand classes
+    # (c1<->c3, c2<->c4) and would corrupt labels in the full10 setting.
+    if train and aug:
+        return T.Compose([
+            T.RandomResizedCrop(img_size, scale=(0.8, 1.0), ratio=(0.9, 1.1)),
+            T.RandomRotation(8),
+            T.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2),
+            T.ToTensor(),
+            T.Normalize(MEAN, STD),
+        ])
+    return T.Compose([
+        T.Resize((img_size, img_size)),
+        T.ToTensor(),
+        T.Normalize(MEAN, STD),
+    ])
+
+
+class SplitDataset(Dataset):
+    def __init__(self, root, splits_csv, split, grouping, transform):
+        df = pd.read_csv(splits_csv)
+        df = df[df["split"] == split].reset_index(drop=True)
+        self.root = Path(root)
+        self.paths = df["path"].tolist()
+        names = class_names(grouping)
+        mapping = GROUPINGS[grouping]
+        self.labels = [names.index(mapping[c]) for c in df["classname"]]
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, i):
+        img = Image.open(self.root / self.paths[i]).convert("RGB")
+        return self.transform(img), self.labels[i]
+
+
+def build_model(arch: str, num_classes: int, pretrained: bool):
+    if arch == "mobilenet_v3_small":
+        w = models.MobileNet_V3_Small_Weights.DEFAULT if pretrained else None
+        m = models.mobilenet_v3_small(weights=w)
+        m.classifier[3] = nn.Linear(m.classifier[3].in_features, num_classes)
+    elif arch == "resnet18":
+        w = models.ResNet18_Weights.DEFAULT if pretrained else None
+        m = models.resnet18(weights=w)
+        m.fc = nn.Linear(m.fc.in_features, num_classes)
+    elif arch == "efficientnet_lite0":
+        import timm  # optional dependency
+        m = timm.create_model("efficientnet_lite0", pretrained=pretrained, num_classes=num_classes)
+    else:
+        raise ValueError(f"unknown arch: {arch}")
+    return m
+
+
+def count_params(model: nn.Module) -> int:
+    return sum(p.numel() for p in model.parameters())
