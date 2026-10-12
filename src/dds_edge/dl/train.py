@@ -44,6 +44,10 @@ def main():
     ap.add_argument("--epochs", type=int, default=10)
     ap.add_argument("--batch_size", type=int, default=64)
     ap.add_argument("--lr", type=float, default=1e-3)
+    ap.add_argument("--weight_decay", type=float, default=1e-4)
+    ap.add_argument("--label_smoothing", type=float, default=0.1)
+    ap.add_argument("--class_weight", default="none", choices=["none", "sqrt", "inverse"],
+                    help="weight the loss per class from train counts: sqrt = inverse^0.5")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--pretrained", action=argparse.BooleanOptionalAction, default=True)
@@ -70,8 +74,14 @@ def main():
 
     model = build_model(a.arch, len(names), a.pretrained).to(
         device, memory_format=torch.channels_last)
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
-    opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=1e-4)
+    weight = None
+    if a.class_weight != "none":
+        counts = np.bincount(ds["train"].labels, minlength=len(names))
+        w = (counts.sum() / (len(names) * counts)) ** (1.0 if a.class_weight == "inverse" else 0.5)
+        weight = torch.tensor(w / w.mean(), dtype=torch.float32, device=device)
+        print("class weights:", dict(zip(names, weight.cpu().numpy().round(3).tolist())))
+    criterion = nn.CrossEntropyLoss(weight=weight, label_smoothing=a.label_smoothing)
+    opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=a.weight_decay)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs)
     use_amp = device.type == "cuda"
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
