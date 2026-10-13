@@ -67,3 +67,13 @@ python -m dds_edge.dl.export_quantize --run mnv3_clean --quant dynamic --tag dyn
 python -m dds_edge.dl.summarize
 ```
 The notebooks `notebooks/colab_train.ipynb` (Vietnamese, step by step) and `notebooks/kaggle_train.ipynb` run these on a GPU.
+
+## 5) Local web demo
+
+The browser demo uses a saved PyTorch checkpoint directly (no extra web-framework dependency):
+
+```
+python -m dds_edge.dl.web_demo --run effl0_clean --runs-dir dds-edge-runs
+```
+
+Open `http://127.0.0.1:8000`, upload or drag a JPG/PNG/WebP cabin frame, and review the predicted group, confidence, top-3 scores, and CPU inference time. The server is local and processes uploads in memory only.
