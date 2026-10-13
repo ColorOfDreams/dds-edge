@@ -1,0 +1,358 @@
+% DDS-Edge: nhận diện tài xế mất tập trung trên thiết bị edge
+% Biên dịch: Overleaf, compiler pdfLaTeX (mặc định). Tải cả thư mục paper/ (gồm figs/).
+\documentclass[10pt,a4paper,twocolumn]{article}
+
+\usepackage[T5]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[vietnamese]{babel}
+\usepackage[margin=1.8cm,columnsep=0.6cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
+\usepackage[hidelinks]{hyperref}
+
+\captionsetup{font=small,labelfont=bf}
+\setlist{nosep,leftmargin=*}
+\newcommand{\cls}[1]{\texttt{#1}}
+\definecolor{dgreen}{HTML}{00A95C}
+\definecolor{dgray}{HTML}{9AA3B2}
+\definecolor{dpink}{HTML}{F56776}
+\definecolor{dorange}{HTML}{F58643}
+\pgfplotsset{every axis/.append style={/pgf/number format/use comma,
+  tick label style={font=\scriptsize}, label style={font=\footnotesize},
+  legend style={font=\scriptsize}}}
+
+\title{\textbf{Nhận diện tài xế mất tập trung trên thiết bị Edge:\\
+đánh đổi giữa độ chính xác, kích thước và tốc độ}}
+\author{Trần Gia Huy\\[2pt]
+\small Bài tập lớn môn Deep Learning, dự án DDS-Edge}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Nhận diện hành vi mất tập trung của tài xế từ camera trong xe cần chạy ngay trên thiết bị đặt trong xe (edge), nơi bộ nhớ, năng lực tính toán và điện năng đều hạn chế. Bài này so sánh bốn mạng tích chập có quy mô khác nhau (MobileNetV3-Small, EfficientNet-Lite0, ResNet18, ResNet50) trên bộ State Farm Distracted Driver, với nhãn gộp thành 6 nhóm hành vi, tập dữ liệu được chia theo tài xế và loại bỏ ảnh gần trùng. Ngoài độ chính xác (macro-F1 trên tài xế chưa từng thấy), chúng tôi đo số tham số, số phép nhân cộng (MACs), kích thước mô hình và độ trễ trên CPU trước và sau lượng tử hoá INT8 sau huấn luyện. Kết quả cho thấy mô hình nặng không chính xác hơn: EfficientNet-Lite0 (384 triệu MACs) đạt macro-F1 0,786 và 0,815 ở hai lần chạy, cao hơn ResNet50 (4,09 tỉ MACs, 0,746). Lượng tử hoá INT8 giữ nguyên độ chính xác của EfficientNet-Lite0 và ResNet18, giảm kích thước 3,5 đến 4 lần và tăng tốc 1,6 đến 3,1 lần trên CPU, nhưng làm MobileNetV3-Small sụp đổ (macro-F1 từ 0,744 xuống 0,06--0,27) ở mọi cấu hình đã thử. Phân tích lỗi cho thấy lớp \cls{talk\_passenger} chủ yếu bị nhầm với nhóm với tay/chải chuốt chứ không phải với lái xe bình thường.
+\end{abstract}
+
+\noindent\textbf{Từ khoá:} edge AI, phân loại ảnh, tài xế mất tập trung, lượng tử hoá INT8, mạng nhẹ.
+
+% =====================================================================
+\section{Giới thiệu}
+Mất tập trung khi lái xe (dùng điện thoại, ăn uống, quay sang hành khách\ldots) là hành vi cần được phát hiện và cảnh báo kịp thời. Một camera đặt trong xe kết hợp với mô hình phân loại ảnh có thể làm việc này. Có hai cách triển khai mô hình: gửi ảnh lên máy chủ để suy luận (cloud AI) hoặc chạy mô hình ngay trên thiết bị trong xe (edge AI). Edge AI phù hợp với bài toán này vì cảnh báo không phải chờ đường truyền, video có mặt tài xế không phải gửi đi, và hệ thống vẫn chạy khi xe mất sóng. Cái giá phải trả là thiết bị edge có bộ nhớ, năng lực tính toán và điện năng hạn chế, nên mô hình phải nhỏ và nhanh.
+
+Việc thu nhỏ mô hình để chạy trên edge (chọn kiến trúc nhẹ, lượng tử hoá số thực 32 bit thành số nguyên 8 bit) có thể làm giảm độ chính xác. Vì vậy câu hỏi nghiên cứu của bài là:
+\emph{khi bị giới hạn tài nguyên như thiết bị edge, ta đánh đổi bao nhiêu độ chính xác trên tài xế chưa từng thấy, có cách nào thu hẹp khoảng cách đó, và mô hình nào thực sự khả thi để đưa lên edge?}
+
+Đóng góp của bài:
+\begin{itemize}
+\item Một giao thức đánh giá cố định trên State Farm: chia theo tài xế để tránh rò rỉ dữ liệu, loại bỏ ảnh gần trùng, dùng macro-F1 làm thước đo chính.
+\item So sánh bốn kiến trúc từ 1,5 triệu đến 23,5 triệu tham số về độ chính xác, MACs, kích thước, độ trễ và FPS, trước và sau lượng tử hoá INT8.
+\item Chỉ ra rằng khả năng chịu lượng tử hoá, chứ không chỉ số tham số, quyết định mô hình nào khả thi trên edge: MobileNetV3-Small nhanh nhất ở FP32 nhưng không chịu được INT8 sau huấn luyện.
+\item Phân tích lỗi theo lớp và theo tài xế, cho thấy giới hạn chính nằm ở lớp \cls{talk\_passenger}.
+\end{itemize}
+
+% =====================================================================
+\section{Công trình liên quan}
+\textbf{Dữ liệu.} Bộ State Farm Distracted Driver Detection~\cite{statefarm} gồm ảnh chụp từ camera đặt cạnh tài xế, gán 10 lớp hành vi. Vì ảnh được trích từ video, nếu chia train/test ngẫu nhiên theo ảnh thì ảnh của cùng một tài xế (thậm chí các khung hình liền nhau) xuất hiện ở cả hai tập và điểm số cao hơn thực tế. Bài này chia theo tài xế.
+
+\textbf{Mạng nhẹ.} ResNet~\cite{he2016resnet} dùng kết nối tắt để huấn luyện mạng sâu. MobileNetV3~\cite{howard2019mobilenetv3} kết hợp tích chập tách theo chiều sâu, khối dư đảo ngược, khối squeeze-and-excitation (SE)~\cite{hu2018senet} và hàm kích hoạt hard-swish, được thiết kế bằng tìm kiếm kiến trúc. EfficientNet~\cite{tan2019efficientnet} mở rộng đồng thời chiều sâu, chiều rộng và độ phân giải; biến thể EfficientNet-Lite~\cite{efficientnetlite} bỏ SE và thay swish bằng ReLU6 để dễ lượng tử hoá hơn.
+
+\textbf{Lượng tử hoá.} Jacob và cộng sự~\cite{jacob2018quant} đề xuất lượng tử hoá affine để suy luận hoàn toàn bằng số nguyên. Các tổng quan~\cite{krishnamoorthi2018,nagel2021white} phân biệt lượng tử hoá sau huấn luyện (post-training quantization, PTQ) và lượng tử hoá trong huấn luyện (quantization-aware training, QAT), và lưu ý rằng các mạng dùng tích chập theo chiều sâu nhạy với PTQ.
+
+% =====================================================================
+\section{Phương pháp}
+
+\subsection{Dữ liệu và tiền xử lý}
+Chúng tôi dùng 22.424 ảnh có nhãn của thư mục huấn luyện State Farm (26 tài xế, ảnh RGB 640$\times$480). Thư mục test của Kaggle (79.726 ảnh) không có nhãn nên không dùng.
+
+\textbf{Gộp nhãn.} 10 lớp gốc được gộp thành 6 nhóm có ý nghĩa cho cảnh báo (Bảng~\ref{tab:classes}). Nhóm \cls{phone} gộp bốn lớp điện thoại nên chiếm 41,6\% ảnh huấn luyện; tỉ lệ giữa lớp lớn nhất và nhỏ nhất là 4,94. Mười lớp gốc thì gần cân bằng (1.911--2.489 ảnh mỗi lớp).
+
+\begin{table}[t]
+\centering\small
+\caption{Gộp 10 lớp gốc thành 6 nhóm hành vi.}
+\label{tab:classes}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Nhóm & Lớp gốc State Farm \\
+\midrule
+\cls{normal} & c0 lái xe an toàn \\
+\cls{phone} & c1--c4 nhắn tin, gọi điện (tay trái/phải) \\
+\cls{device\_ops} & c5 thao tác radio \\
+\cls{eat\_drink} & c6 uống nước \\
+\cls{reach\_grooming} & c7 với ra sau, c8 chải tóc/trang điểm \\
+\cls{talk\_passenger} & c9 nói chuyện với hành khách \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Chia theo tài xế.} Ảnh được trích từ video nên ảnh của cùng một tài xế rất giống nhau. Nếu chia theo ảnh, mô hình có thể nhận ra người thay vì hành vi. Chúng tôi chia theo tài xế với seed 42: 18 tài xế huấn luyện, 4 tài xế kiểm định (val) và 4 tài xế kiểm tra (test); mỗi tài xế chỉ thuộc một tập.
+
+\textbf{Loại bỏ ảnh gần trùng.} Trong mỗi nhóm (tài xế, lớp), ảnh được xét theo thứ tự tên tệp (gần với thứ tự khung hình). Mỗi ảnh được thu về ảnh xám 32$\times$24; một ảnh bị loại nếu sai khác tuyệt đối trung bình giữa các điểm ảnh so với một ảnh đã giữ nhỏ hơn 2 (thang 0--255). Ngưỡng được chọn bằng cách xem trực tiếp các cặp ảnh (Hình~\ref{fig:data}b). Bước này loại 2.417 ảnh (10,8\%), áp dụng cho cả ba tập, còn 20.007 ảnh: 13.809 / 3.617 / 2.581 cho train / val / test. Ảnh được lưu lại ở 320$\times$240 (giữ tỉ lệ 4:3).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figs/classes.jpg}\\[-1pt]
+{\footnotesize (a) Mười lớp gốc c0--c9 của cùng một tài xế.}\\[4pt]
+\includegraphics[width=0.62\linewidth]{figs/near_duplicates.jpg}\\[-1pt]
+{\footnotesize (b) Hai cặp ảnh gần trùng (sai khác 0,5 và 1,5); chỉ giữ một ảnh mỗi cặp.}
+\caption{Dữ liệu State Farm.}
+\label{fig:data}
+\end{figure}
+
+\subsection{Mô hình và huấn luyện}
+\textbf{Kiến trúc.} Bốn mạng được chọn để phủ một dải quy mô (Bảng~\ref{tab:models}); tất cả dùng trọng số huấn luyện sẵn trên ImageNet, thay lớp phân loại cuối bằng lớp 6 đầu ra và tinh chỉnh toàn bộ.
+\begin{itemize}
+\item \textbf{MobileNetV3-Small}~\cite{howard2019mobilenetv3}: mô hình mục tiêu cho edge. Dùng tích chập tách theo chiều sâu (một bộ lọc cho mỗi kênh rồi tích chập 1$\times$1 để trộn kênh), giảm mạnh số phép tính so với tích chập thường; khối SE học trọng số cho từng kênh; hàm hard-swish $x\cdot\mathrm{ReLU6}(x+3)/6$ là xấp xỉ rẻ của swish.
+\item \textbf{EfficientNet-Lite0}~\cite{tan2019efficientnet,efficientnetlite}: dựa trên EfficientNet-B0, bỏ khối SE và dùng ReLU6, tức các phép toán có miền giá trị bị chặn, thuận lợi cho lượng tử hoá.
+\item \textbf{ResNet18 và ResNet50}~\cite{he2016resnet}: mạng dư kinh điển, làm mốc so sánh nặng vừa và nặng. ResNet18 dùng khối cơ bản hai lớp 3$\times$3; ResNet50 dùng khối nút cổ chai 1$\times$1--3$\times$3--1$\times$1.
+\end{itemize}
+
+\begin{table}[t]
+\centering\small
+\caption{Quy mô các mô hình (đầu ra 6 lớp, ảnh 224$\times$224). MACs đo bằng bộ đếm phép tính của PyTorch.}
+\label{tab:models}
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+Mô hình & Tham số & MACs & Vai trò \\
+\midrule
+MobileNetV3-Small & 1,52 M & 55 M & ứng viên edge \\
+EfficientNet-Lite0 & 3,38 M & 384 M & ứng viên edge \\
+ResNet18 & 11,18 M & 1,81 G & mốc nặng vừa \\
+ResNet50 & 23,52 M & 4,09 G & mốc nặng \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Huấn luyện.} Mọi mô hình dùng chung một giao thức: 10 epoch, batch 64, AdamW~\cite{loshchilov2019adamw} với learning rate $10^{-3}$ và weight decay $10^{-4}$, lịch học cosine~\cite{loshchilov2017sgdr} giảm về 0 ở epoch cuối, cross-entropy với label smoothing 0,1~\cite{szegedy2016rethinking}, mixed precision trên GPU. Ảnh vào được đưa về 224$\times$224 và chuẩn hoá theo ImageNet. Tăng cường dữ liệu gồm cắt ngẫu nhiên (80--100\% diện tích, tỉ lệ 0,9--1,1), xoay $\pm 8^\circ$, thay đổi độ sáng, tương phản và bão hoà. \emph{Không lật ngang ảnh}, vì lật sẽ biến tay phải thành tay trái và làm sai nhãn của các lớp gốc c1--c4. Checkpoint được chọn theo macro-F1 cao nhất trên val; test chỉ được đánh giá một lần với checkpoint đó.
+
+\textbf{Thước đo.} Thước đo chính là macro-F1, trung bình F1 của 6 lớp với trọng số bằng nhau:
+\begin{equation}
+\mathrm{F1}_c=\frac{2P_cR_c}{P_c+R_c},\qquad \text{macro-F1}=\frac{1}{6}\sum_{c=1}^{6}\mathrm{F1}_c ,
+\end{equation}
+với $P_c$, $R_c$ là precision và recall của lớp $c$. Accuracy dễ gây hiểu nhầm khi \cls{phone} chiếm khoảng 40\% dữ liệu: luôn đoán \cls{phone} cho accuracy 0,387 trên test nhưng macro-F1 chỉ 0,093.
+
+\subsection{Lượng tử hoá INT8 và đo tốc độ}
+\label{sec:quant}
+\textbf{Lượng tử hoá affine.} Lượng tử hoá ánh xạ một tensor số thực $x$ sang số nguyên 8 bit $q$ bằng một hệ số tỉ lệ $s$ và điểm không $z$~\cite{jacob2018quant}:
+\begin{equation}
+q=\mathrm{clamp}\!\left(\mathrm{round}\!\left(\tfrac{x}{s}\right)+z,\;q_{\min},q_{\max}\right),\qquad \hat{x}=s\,(q-z).
+\end{equation}
+Với một khoảng giá trị $[\alpha,\beta]$ cần biểu diễn, $s=(\beta-\alpha)/(q_{\max}-q_{\min})$. Mỗi số chỉ còn 256 mức thay vì số thực 32 bit, nên mô hình nhỏ đi khoảng 4 lần và có thể chạy bằng phép tính số nguyên, nhanh hơn trên phần cứng hỗ trợ. Đổi lại, mỗi giá trị bị làm tròn (sai số tối đa $s/2$) hoặc bị cắt nếu nằm ngoài $[\alpha,\beta]$.
+
+\textbf{Cách làm.} Mô hình PyTorch được xuất sang ONNX (opset 13) rồi lượng tử hoá bằng ONNX Runtime. Cấu hình mặc định là lượng tử hoá \emph{tĩnh} sau huấn luyện: trọng số INT8 với một hệ số cho mỗi kênh đầu ra (per-channel), activation UINT8 với một hệ số cho mỗi tensor, định dạng QDQ (chèn nút Quantize/Dequantize quanh toán tử). Khoảng giá trị của activation được đo trên 200 ảnh huấn luyện (calibration). Chúng tôi so sánh thêm các biến thể: cách chọn khoảng giá trị \emph{minmax} (nhỏ nhất đến lớn nhất), \emph{entropy} (cực tiểu hoá phân kỳ KL giữa phân phối gốc và phân phối đã lượng tử hoá) và \emph{percentile} (cắt bỏ đuôi phân phối); 600 thay vì 200 ảnh calibration; định dạng toán tử lượng tử hoá sẵn (QOperator); và lượng tử hoá \emph{động} (chỉ trọng số là INT8, activation được lượng tử hoá lúc chạy, không cần calibration).
+
+\textbf{Vì sao lượng tử hoá có thể làm giảm độ chính xác.}
+(i) Sai số làm tròn ở từng lớp nhỏ nhưng cộng dồn qua hàng chục lớp.
+(ii) Một vài giá trị ngoại lai làm khoảng $[\alpha,\beta]$ rộng ra, khiến $s$ lớn và phần lớn giá trị thông thường chỉ còn rất ít mức biểu diễn.
+(iii) Trong tích chập theo chiều sâu, mỗi kênh có bộ lọc riêng nên khoảng giá trị khác nhau nhiều giữa các kênh; một hệ số chung cho cả tensor làm mất thông tin ở các kênh nhỏ~\cite{krishnamoorthi2018}.
+(iv) Các phép toán như hard-swish và nhánh SE (nhân activation với một hệ số trong khoảng 0--1) tạo ra phân phối activation khó biểu diễn bằng 8 bit; đây là lý do EfficientNet-Lite bỏ SE và dùng ReLU6~\cite{efficientnetlite}.
+Do đó, sau mỗi bước chuyển đổi phải đo lại độ chính xác.
+
+\textbf{Đo tốc độ và cổng khả thi.} Độ trễ đo bằng ONNX Runtime trên CPU Intel Core i5-12400F, 1 luồng, batch 1: 10 lần chạy làm nóng rồi lấy trung vị và phân vị 95 của 100 lần chạy; FPS $=1000/\text{độ trễ trung vị (ms)}$. Đây là phép xấp xỉ để xếp hạng tương đối, không phải số đo trên chip edge. Một mô hình được coi là \emph{qua cổng khả thi} nếu bản INT8 giảm không quá khoảng 2 điểm macro-F1 so với bản FP32.
+
+% =====================================================================
+\section{Thí nghiệm và kết quả}
+\textbf{Môi trường.} Huấn luyện chạy trên GPU của Kaggle Notebooks (lần chạy 1) và Google Colab, GPU T4 (lần chạy lại), với PyTorch và timm (cho EfficientNet-Lite0). Xuất ONNX, lượng tử hoá và đo tốc độ chạy trên CPU máy cá nhân với ONNX Runtime 1.31. Mã nguồn và nhật ký từng lần chạy nằm trong kho mã của dự án.
+
+\subsection{So sánh mô hình}
+Bảng~\ref{tab:main} cho kết quả trên tập test (4 tài xế chưa từng thấy). Mọi mô hình vượt xa mốc đoán lớp đa số (macro-F1 0,093). Ba quan sát chính:
+
+\emph{Mô hình nặng không chính xác hơn.} EfficientNet-Lite0 đạt macro-F1 cao nhất ở cả hai lần chạy (0,786 và 0,815), trong khi ResNet50, nặng hơn 10,6 lần về MACs, chỉ đạt 0,746.
+
+\emph{Val lạc quan hơn test, nhất là với mô hình lớn.} Ở lần chạy 1, chênh lệch val $-$ test là 0,120 (MobileNetV3-Small) và 0,103 (EfficientNet-Lite0), nhưng 0,150 (ResNet18) và 0,194 (ResNet50). Val chỉ có 4 tài xế và được dùng để chọn epoch, nên điểm val không phản ánh tốt khả năng tổng quát sang tài xế mới.
+
+\emph{Nhiễu giữa các lần chạy khoảng 0,02--0,03.} Chạy lại cùng cấu hình và seed trên Colab cho điểm cao hơn lần đầu 0,018--0,029. Thứ hạng EfficientNet-Lite0 trên ResNet18 không đổi, nhưng chênh lệch dưới khoảng 0,03 giữa hai cấu hình không nên coi là có ý nghĩa.
+
+\begin{table}[t]
+\centering\small
+\caption{Kết quả trên test (10 epoch, seed 42). Lần 1: Kaggle; lần 2: chạy lại trên Colab. Val: macro-F1 val tốt nhất của lần 1.}
+\label{tab:main}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+& \multicolumn{2}{c}{Lần 1} & Lần 2 & \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-4}
+Mô hình & Acc & Macro-F1 & Macro-F1 & Val \\
+\midrule
+MobileNetV3-Small & 0,838 & 0,752 & -- & 0,872 \\
+EfficientNet-Lite0 & 0,854 & \textbf{0,786} & \textbf{0,815} & 0,889 \\
+ResNet18 & 0,807 & 0,752 & 0,770 & 0,902 \\
+ResNet50 & 0,807 & 0,746 & -- & 0,940 \\
+\midrule
+Đoán lớp đa số & 0,387 & 0,093 & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Siêu tham số và số epoch}
+Trên MobileNetV3-Small, mỗi lần chỉ đổi một tham số so với cấu hình mặc định (Bảng~\ref{tab:hp}). Không cấu hình nào vượt cấu hình mặc định; mức giảm 0,008--0,017 nằm trong phạm vi nhiễu. Đáng chú ý, F1 của \cls{talk\_passenger} tăng khoảng 0,07 trong khi \cls{normal} giảm, tức ranh giới giữa các lớp dịch chuyển chứ mô hình không tốt hơn. Huấn luyện 20 epoch cho macro-F1 0,768, epoch tốt nhất trên val vẫn là epoch 6, nên 10 epoch là đủ cho giao thức này.
+
+\begin{table}[t]
+\centering\small
+\caption{Thay đổi một siêu tham số trên MobileNetV3-Small (test). Dòng đầu là cấu hình mặc định (lần 1).}
+\label{tab:hp}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Cấu hình & Val & Macro-F1 & F1 \cls{talk} & F1 \cls{normal} \\
+\midrule
+Mặc định & 0,872 & \textbf{0,752} & 0,391 & 0,683 \\
+lr $3\cdot10^{-4}$ & 0,794 & 0,735 & 0,473 & 0,512 \\
+lr $3\cdot10^{-3}$ & 0,895 & 0,744 & 0,470 & 0,568 \\
+weight decay $10^{-2}$ & 0,841 & 0,741 & 0,458 & 0,667 \\
+20 epoch & 0,870 & 0,768 & 0,402 & 0,764 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Lượng tử hoá INT8 và tốc độ}
+Bảng~\ref{tab:int8} và Hình~\ref{fig:int8} so sánh bản FP32 và INT8 (lượng tử hoá tĩnh, minmax, per-channel). Bản FP32 xuất qua ONNX cho macro-F1 khớp với PyTorch (sai khác khoảng 0,001), xác nhận đường ống xuất mô hình đúng.
+
+\textbf{EfficientNet-Lite0 và ResNet18 chịu tốt INT8.} Macro-F1 gần như không đổi (0,814 $\rightarrow$ 0,814; 0,771 $\rightarrow$ 0,772), kích thước giảm 3,5 và 4,0 lần, độ trễ giảm 1,6 và 3,1 lần. Biến thể percentile cho kết quả tương đương (0,816 và 0,774).
+
+\textbf{MobileNetV3-Small sụp đổ sau INT8.} Macro-F1 giảm từ 0,744 xuống 0,144 với cấu hình mặc định. Bảng~\ref{tab:mnv3} cho thấy không biến thể nào khắc phục được: entropy và QOperator vẫn 0,144, percentile chỉ đạt 0,271 (với 200 hay 600 ảnh calibration), lượng tử hoá động còn tệ hơn (0,057) và chậm hơn FP32 gần 15 lần. Trên CPU này, bản INT8 tĩnh của MobileNetV3-Small cũng chậm hơn FP32 (435 so với 605 FPS): với một mô hình rất nhỏ, chi phí của các nút lượng tử hoá/giải lượng tử hoá có thể lớn hơn phần tiết kiệm được.
+
+\begin{table}[t]
+\centering\small
+\caption{FP32 và INT8 trên CPU (ONNX Runtime, 1 luồng, batch 1, test 2.581 ảnh). MobileNetV3-Small đo trên một checkpoint huấn luyện với lr $3\cdot10^{-3}$ (cùng kiến trúc).}
+\label{tab:int8}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}llrrrc@{}}
+\toprule
+Mô hình & & MB & ms & FPS & Macro-F1 \\
+\midrule
+\multirow{2}{*}{EfficientNet-Lite0} & FP32 & 13,47 & 8,16 & 123 & 0,814 \\
+ & INT8 & 3,80 & 5,12 & 195 & \textbf{0,814} \\
+\midrule
+\multirow{2}{*}{ResNet18} & FP32 & 44,71 & 29,05 & 34 & 0,771 \\
+ & INT8 & 11,30 & 9,25 & 108 & \textbf{0,772} \\
+\midrule
+\multirow{2}{*}{MobileNetV3-Small} & FP32 & 6,11 & 1,65 & 605 & 0,744 \\
+ & INT8 & 1,88 & 2,30 & 435 & \textcolor{red}{0,144} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering\small
+\caption{Các cách lượng tử hoá MobileNetV3-Small (FP32: macro-F1 0,744; 605 FPS).}
+\label{tab:mnv3}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Cách lượng tử hoá & MB & FPS & Macro-F1 \\
+\midrule
+Tĩnh, minmax (mặc định) & 1,88 & 435 & 0,144 \\
+Tĩnh, entropy & 1,88 & 462 & 0,144 \\
+Tĩnh, percentile & 1,88 & 478 & 0,271 \\
+Tĩnh, percentile, 600 ảnh & 1,88 & 426 & 0,271 \\
+Tĩnh, QOperator & 1,73 & 478 & 0,144 \\
+Động (chỉ trọng số) & 1,70 & 41 & 0,057 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=\linewidth, height=5.2cm,
+  xlabel={Độ trễ một ảnh trên CPU (ms)},
+  ylabel={Macro-F1 trên test},
+  xmin=0, xmax=32, ymin=0, ymax=1,
+  grid=major, grid style={gray!20},
+  legend pos=south east, legend cell align=left,
+  nodes near coords, point meta=explicit symbolic,
+  every node near coord/.append style={font=\tiny, anchor=west, xshift=2pt},
+]
+\addplot[only marks, mark=*, mark size=2.5pt, color=dgray] table[meta=label] {
+x y label
+8.16 0.814 EffNet-Lite0
+29.05 0.771 ResNet18
+1.65 0.744 MobileNetV3-S
+};
+\addlegendentry{FP32}
+\addplot[only marks, mark=*, mark size=2.5pt, color=dgreen] table[meta=label] {
+x y label
+5.12 0.814 {}
+9.25 0.772 ResNet18
+2.30 0.144 MobileNetV3-S
+};
+\addlegendentry{INT8}
+\end{axis}
+\end{tikzpicture}
+\caption{Độ chính xác theo độ trễ, FP32 và INT8. Góc trên bên trái là tốt nhất. EfficientNet-Lite0 INT8 (5,1 ms; 0,814) là điểm tốt nhất trong các mô hình qua được INT8; MobileNetV3-Small INT8 nhanh nhưng sụp về độ chính xác.}
+\label{fig:int8}
+\end{figure}
+
+\subsection{Phân tích lỗi}
+Với EfficientNet-Lite0 (lần 2), \cls{phone}, \cls{device\_ops} và \cls{normal} đạt F1 từ 0,90 đến 0,95, còn \cls{talk\_passenger} chỉ đạt 0,416: precision 0,81 nhưng recall 0,28, tức mô hình hiếm khi đoán lớp này. Hình~\ref{fig:conf} cho thấy 56\% ảnh \cls{talk\_passenger} bị đoán là \cls{reach\_grooming}, chỉ 7\% bị đoán là \cls{normal}; giả thuyết ban đầu của chúng tôi (nhầm với \cls{normal}) là sai. Xem trực tiếp các ảnh bị nhầm (Hình~\ref{fig:mis}), nhiều ảnh mang nhãn nói chuyện với hành khách có tay giơ lên (chỉnh gương chiếu hậu) hoặc tay của hành khách chen vào khung hình, nên rất giống nhóm với tay/chải chuốt. Lớp c9 vì vậy đa dạng về hình ảnh và có phần nhập nhằng nhãn. Với ResNet18, \cls{talk\_passenger} bị nhầm sang \cls{reach\_grooming} (33\%) và \cls{phone} (28\%). Nhầm lẫn đáng kể khác là \cls{eat\_drink} $\rightarrow$ \cls{phone} (17\%), có thể vì tay cầm một vật gần mặt.
+
+Điểm cũng khác nhiều giữa các tài xế test: với EfficientNet-Lite0, accuracy từ 0,813 (p050) đến 0,953 (p035); với ResNet18, macro-F1 trên tài xế p081 chỉ 0,55. Với chỉ 4 tài xế test, việc tài xế nào rơi vào tập test ảnh hưởng đáng kể đến điểm tổng.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  xbar, width=\linewidth, height=4.4cm,
+  xmin=0, xmax=70, bar width=7pt,
+  xlabel={\% ảnh \cls{talk\_passenger} (225 ảnh test)},
+  symbolic y coords={eat,phone,device,normal,talk,reach},
+  ytick=data, yticklabels={eat\_drink,phone,device\_ops,normal,talk\_passenger,reach\_grooming},
+  y tick label style={font=\scriptsize\ttfamily},
+  nodes near coords, nodes near coords align={horizontal},
+  every node near coord/.append style={font=\tiny},
+  enlarge y limits=0.12, grid=major, grid style={gray!20},
+]
+\addplot[fill=dgreen!70, draw=none] coordinates {
+(56.4,reach) (28.0,talk) (7.1,normal) (5.8,device) (2.7,phone) (0.0,eat)};
+\end{axis}
+\end{tikzpicture}
+\caption{Ảnh có nhãn \cls{talk\_passenger} được EfficientNet-Lite0 đoán thành lớp nào (dòng \cls{talk\_passenger} của confusion matrix). Chỉ 28\% được đoán đúng.}
+\label{fig:conf}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figs/talk_as_reach.jpg}
+\caption{12 ảnh \cls{talk\_passenger} bị EfficientNet-Lite0 đoán là \cls{reach\_grooming} với độ tin cậy cao nhất (góc trên: mã tài xế và xác suất). Nhiều ảnh có tay giơ lên hoặc tay hành khách trong khung hình.}
+\label{fig:mis}
+\end{figure}
+
+% =====================================================================
+\section{Thảo luận}
+\textbf{Trả lời câu hỏi nghiên cứu.} Trong các mô hình đã thử, chuyển sang mô hình nhẹ \emph{không} làm mất độ chính xác trên tài xế mới: EfficientNet-Lite0 chính xác nhất dù chỉ cần 384 triệu MACs. Điểm đánh đổi thực sự nằm ở bước lượng tử hoá: với cùng một phương pháp INT8 sau huấn luyện, EfficientNet-Lite0 và ResNet18 không mất điểm, còn MobileNetV3-Small mất gần hết. Như vậy số tham số và MACs không đủ để chọn mô hình cho edge; khả năng chịu lượng tử hoá cũng quyết định. Với tiêu chí của bài, EfficientNet-Lite0 INT8 là lựa chọn tốt nhất: macro-F1 0,814, 3,8 MB, 195 FPS trên CPU.
+
+\textbf{Vì sao MobileNetV3-Small sụp đổ.} Chúng tôi chưa xác định chắc chắn nguyên nhân. Giải thích phù hợp nhất với các quan sát là kiến trúc của MobileNetV3 dùng hard-swish và khối SE (Mục~\ref{sec:quant}), đúng các thành phần mà EfficientNet-Lite loại bỏ để dễ lượng tử hoá; việc đổi cách chọn khoảng giá trị không cải thiện đáng kể cũng cho thấy vấn đề không chỉ nằm ở giá trị ngoại lai. Kiểm chứng giả thuyết này (ví dụ để một số lớp ở FP32, hoặc dùng QAT) là việc cần làm tiếp.
+
+\textbf{Thu hẹp khoảng cách.} Các thay đổi siêu tham số và số epoch không cải thiện vượt mức nhiễu. Điểm yếu lớn nhất là lớp \cls{talk\_passenger}, và phân tích lỗi cho thấy nguyên nhân chủ yếu nằm ở dữ liệu (ảnh đa dạng, nhãn nhập nhằng với nhóm với tay) hơn là ở kiến trúc, vì mọi mô hình đều yếu ở lớp này. Các thí nghiệm xử lý mất cân bằng (class weight), tăng cường dữ liệu mạnh hơn và ảnh 320$\times$240 giữ tỉ lệ đã được chuẩn bị nhưng chưa hoàn thành.
+
+\textbf{Hạn chế.} (i) Val và test mỗi tập chỉ có 4 tài xế; chạy lại cùng cấu hình lệch 0,02--0,03, nên chỉ những chênh lệch lớn mới có ý nghĩa. (ii) Mỗi cấu hình chỉ chạy một seed, chưa dùng cross-validation theo tài xế. (iii) Tốc độ đo trên CPU máy tính, chỉ để so sánh tương đối; FPS và khả năng hỗ trợ toán tử trên chip edge thật cần đo riêng. (iv) Số đo INT8 của MobileNetV3-Small lấy từ một checkpoint huấn luyện với lr $3\cdot10^{-3}$; ResNet50 chưa được lượng tử hoá. (v) Chỉ dùng một bộ dữ liệu, một góc camera.
+
+% =====================================================================
+\section{Kết luận}
+Bài này so sánh bốn mạng tích chập cho bài toán nhận diện tài xế mất tập trung trên thiết bị edge, với giao thức chia theo tài xế và loại bỏ ảnh gần trùng. Mô hình nhẹ không thua mô hình nặng, và EfficientNet-Lite0 là lựa chọn tốt nhất: chính xác nhất, giữ nguyên độ chính xác sau INT8, nhỏ hơn 3,5 lần và nhanh hơn 1,6 lần. MobileNetV3-Small nhanh nhất ở FP32 nhưng không chịu được lượng tử hoá INT8 sau huấn luyện, cho thấy khả năng chịu lượng tử hoá cần được đánh giá trực tiếp khi chọn mô hình cho edge. Hướng phát triển gồm: đo trên chip edge thật, lượng tử hoá trong huấn luyện (QAT) cho MobileNetV3-Small, chưng cất tri thức từ mô hình lớn sang mô hình nhỏ, đánh giá với nhiều seed và cross-validation theo tài xế, và xem lại nhãn của lớp \cls{talk\_passenger}.
+
+% =====================================================================
+\begin{thebibliography}{99}\small
+\bibitem{statefarm} State Farm, ``State Farm Distracted Driver Detection,'' Kaggle competition, 2016. \url{https://www.kaggle.com/c/state-farm-distracted-driver-detection}
+\bibitem{he2016resnet} K. He, X. Zhang, S. Ren, J. Sun, ``Deep residual learning for image recognition,'' in \emph{CVPR}, 2016.
+\bibitem{howard2019mobilenetv3} A. Howard \emph{et al.}, ``Searching for MobileNetV3,'' in \emph{ICCV}, 2019.
+\bibitem{hu2018senet} J. Hu, L. Shen, G. Sun, ``Squeeze-and-excitation networks,'' in \emph{CVPR}, 2018.
+\bibitem{tan2019efficientnet} M. Tan, Q. V. Le, ``EfficientNet: Rethinking model scaling for convolutional neural networks,'' in \emph{ICML}, 2019.
+\bibitem{efficientnetlite} R. Liu, ``Higher accuracy on vision models with EfficientNet-Lite,'' TensorFlow Blog, 2020.
+\bibitem{jacob2018quant} B. Jacob \emph{et al.}, ``Quantization and training of neural networks for efficient integer-arithmetic-only inference,'' in \emph{CVPR}, 2018.
+\bibitem{krishnamoorthi2018} R. Krishnamoorthi, ``Quantizing deep convolutional networks for efficient inference: A whitepaper,'' arXiv:1806.08342, 2018.
+\bibitem{nagel2021white} M. Nagel \emph{et al.}, ``A white paper on neural network quantization,'' arXiv:2106.08295, 2021.
+\bibitem{loshchilov2019adamw} I. Loshchilov, F. Hutter, ``Decoupled weight decay regularization,'' in \emph{ICLR}, 2019.
+\bibitem{loshchilov2017sgdr} I. Loshchilov, F. Hutter, ``SGDR: Stochastic gradient descent with warm restarts,'' in \emph{ICLR}, 2017.
+\bibitem{szegedy2016rethinking} C. Szegedy \emph{et al.}, ``Rethinking the Inception architecture for computer vision,'' in \emph{CVPR}, 2016.
+\end{thebibliography}
+
+\end{document}

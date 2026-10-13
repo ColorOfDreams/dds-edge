@@ -105,11 +105,28 @@ def load_manifest(csv_path, grouping: str) -> pd.DataFrame:
     return df
 
 
+def cv_group_split(groups, n_folds: int, fold: int, seed: int = 42, val_frac: float = 0.18) -> dict:
+    """Driver-level K-fold: group -> 'train' | 'val' | 'test'. Fold `fold` is the test set, a seeded
+    subset of the remaining drivers is val, the rest is train. Every driver is test in exactly one fold."""
+    import random
+    groups = sorted(set(groups))
+    random.Random(seed).shuffle(groups)
+    folds = [groups[i::n_folds] for i in range(n_folds)]
+    test = set(folds[fold])
+    rest = [g for g in groups if g not in test]
+    random.Random(seed + 1 + fold).shuffle(rest)
+    n_val = max(1, round(len(rest) * val_frac))
+    val = set(rest[:n_val])
+    return {g: ("test" if g in test else "val" if g in val else "train") for g in groups}
+
+
 class SplitDataset(Dataset):
     """Images of one split. `root` is the data/ folder that manifest paths are relative to."""
 
-    def __init__(self, root, manifest_csv, split, grouping, transform):
+    def __init__(self, root, manifest_csv, split, grouping, transform, group_split=None):
         df = load_manifest(manifest_csv, grouping)
+        if group_split is not None:  # cross-validation: override the manifest split by driver group
+            df = df.assign(split=df["group"].map(group_split))
         df = df[df["split"] == split].reset_index(drop=True)
         self.root = Path(root)
         self.paths = df["path"].tolist()

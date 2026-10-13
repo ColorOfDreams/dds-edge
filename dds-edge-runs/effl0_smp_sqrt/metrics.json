@@ -1,0 +1,35 @@
+{
+  "args": {
+    "root": "data",
+    "manifest": "processed/sf_320x240/manifest.csv",
+    "arch": "efficientnet_lite0",
+    "grouping": "grouped6",
+    "img_size": "224",
+    "epochs": 10,
+    "batch_size": 64,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "label_smoothing": 0.1,
+    "class_weight": "none",
+    "sampler": "sqrt",
+    "aug_level": 1,
+    "workers": 2,
+    "seed": 42,
+    "pretrained": true,
+    "aug": true,
+    "name": "effl0_smp_sqrt"
+  },
+  "n_params": 3378694,
+  "macs": 383915232,
+  "best_val_macro_f1": 0.8116672336558023,
+  "test_acc": 0.8527702440914374,
+  "test_macro_f1": 0.7850014607371353,
+  "test_f1_per_class": {
+    "normal": 0.8418604651162791,
+    "phone": 0.9316360207449317,
+    "device_ops": 0.8672566371681416,
+    "eat_drink": 0.9115646258503401,
+    "reach_grooming": 0.8055315471045809,
+    "talk_passenger": 0.3521594684385382
+  }
+}

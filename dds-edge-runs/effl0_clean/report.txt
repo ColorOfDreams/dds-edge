@@ -1,0 +1,12 @@
+                precision    recall  f1-score   support
+
+        normal     0.8893    0.9156    0.9023       237
+         phone     0.9151    0.9920    0.9520       999
+    device_ops     0.9564    0.9468    0.9516       301
+     eat_drink     0.8708    0.8138    0.8414       290
+reach_grooming     0.7743    0.8885    0.8275       529
+talk_passenger     0.8077    0.2800    0.4158       225
+
+      accuracy                         0.8764      2581
+     macro avg     0.8689    0.8061    0.8151      2581
+  weighted avg     0.8743    0.8764    0.8627      2581

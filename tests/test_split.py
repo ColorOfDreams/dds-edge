@@ -129,3 +129,29 @@ def test_input_size_square_and_rectangular():
     m = build_model("mobilenet_v3_small", 6, False)
     assert count_macs(m, "320x240") > count_macs(m, 224)  # more pixels -> more MACs
     assert tuple(m(torch.zeros(1, 3, 240, 320)).shape) == (1, 6)
+
+
+def test_cv_driver_folds_are_disjoint_and_cover_all_drivers():
+    from dds_edge.dl.common import cv_group_split
+
+    drivers = [f"p{i:03d}" for i in range(26)]
+    tests = []
+    for f in range(5):
+        m = cv_group_split(drivers, 5, f)
+        assert set(m) == set(drivers) and set(m.values()) == {"train", "val", "test"}
+        tests.append({g for g, v in m.items() if v == "test"})
+    assert sum(len(t) for t in tests) == 26 and set.union(*tests) == set(drivers)  # every driver tested once
+    assert all(not (tests[i] & tests[j]) for i in range(5) for j in range(i + 1, 5))
+
+
+def test_cv_training_and_summary(tmp_path, monkeypatch):
+    _tiny_dataset(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    for fold in (0, 1):
+        subprocess.run([sys.executable, "-m", "dds_edge.dl.train", "--root", str(tmp_path),
+                        "--manifest", "manifest.csv", "--epochs", "1", "--workers", "0", "--img_size", "64",
+                        "--batch_size", "8", "--no-pretrained", "--cv_folds", "2", "--cv_fold", str(fold),
+                        "--name", f"cv{fold}"], check=True)
+    out = subprocess.run([sys.executable, "-m", "dds_edge.dl.cv_summary", "--prefix", "cv"],
+                         check=True, capture_output=True, text=True).stdout
+    assert "2 folds" in out

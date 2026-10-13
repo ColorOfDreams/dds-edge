@@ -49,7 +49,7 @@ def load_runs(runs_dir: Path) -> pd.DataFrame:
     return df.drop_duplicates(subset=["run", "precision"]) if len(df) else df
 
 
-def make_plot(df: pd.DataFrame, path: Path):
+def make_plot(df: pd.DataFrame, path: Path, all_variants: bool = False):
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -57,6 +57,11 @@ def make_plot(df: pd.DataFrame, path: Path):
     except ImportError:
         print("matplotlib not installed: skipping the plot")
         return
+    if not all_variants and "precision" in df.columns:  # default view: FP32 and the default INT8 only
+        df = df[df["precision"].isin(["fp32", "int8"])]
+    # y = F1 of the model that was actually measured (the INT8 point uses the INT8 model's F1)
+    df = df.assign(plot_f1=df["onnx_macro_f1"].fillna(df["test_macro_f1"]) if "onnx_macro_f1" in df.columns
+                   else df["test_macro_f1"])
     d = df[df["latency_ms"].notna()] if "latency_ms" in df.columns else df.iloc[0:0]
     if d.empty:
         d, x, xl = df.dropna(subset=["macs_M"]), "macs_M", "MACs (millions)"
@@ -64,12 +69,12 @@ def make_plot(df: pd.DataFrame, path: Path):
         x, xl = "latency_ms", "CPU latency, batch 1 (ms, lower is faster)"
     fig, ax = plt.subplots(figsize=(7, 4.5))
     for prec, g in d.groupby("precision"):
-        ax.scatter(g[x], g["test_macro_f1"], label=prec, s=50)
+        ax.scatter(g[x], g["plot_f1"], label=prec, s=60)
         for r in g.itertuples():
-            ax.annotate(r.run, (getattr(r, x), r.test_macro_f1), fontsize=7, xytext=(3, 3),
+            ax.annotate(r.run, (getattr(r, x), r.plot_f1), fontsize=8, xytext=(4, 4),
                         textcoords="offset points")
     ax.set_xlabel(xl)
-    ax.set_ylabel("test macro-F1 (float model)")
+    ax.set_ylabel("test macro-F1 of the plotted model")
     ax.grid(alpha=.3)
     ax.legend()
     fig.tight_layout()
@@ -81,6 +86,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs_dir", default="runs")
     ap.add_argument("--out_dir", default="reports")
+    ap.add_argument("--plot_all", action="store_true", help="plot every quantization variant, not just fp32/int8")
     a = ap.parse_args()
     df = load_runs(Path(a.runs_dir))
     if df.empty:
@@ -94,7 +100,7 @@ def main():
     table = df[cols].round(4)
     (out / "summary.md").write_text(table.to_markdown(index=False) if _has_tabulate() else table.to_string(index=False))
     print(table.to_string(index=False))
-    make_plot(df, out / "summary_plot.png")
+    make_plot(df, out / "summary_plot.png", a.plot_all)
     print(f"wrote {out / 'summary.csv'} and {out / 'summary.md'}")
 
 

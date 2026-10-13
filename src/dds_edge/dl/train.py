@@ -13,7 +13,7 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from torch.utils.data import DataLoader
 
 from dds_edge.dl.common import (SplitDataset, build_model, build_transform, class_names,
-                    count_macs, count_params, parse_size)
+                    count_macs, count_params, cv_group_split, load_manifest, parse_size)
 
 
 def set_seed(s):
@@ -55,6 +55,9 @@ def main():
                     help="oversample small classes each epoch: sqrt = freq^-0.5, balanced = freq^-1")
     ap.add_argument("--aug_level", type=int, default=1, choices=[1, 2],
                     help="1 = baseline augmentation, 2 = stronger (see build_transform)")
+    ap.add_argument("--cv_folds", type=int, default=0,
+                    help="driver-level K-fold cross-validation: K folds (0 = use the manifest split)")
+    ap.add_argument("--cv_fold", type=int, default=0, help="which fold is the test set (0..K-1)")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--pretrained", action=argparse.BooleanOptionalAction, default=True)
@@ -67,8 +70,13 @@ def main():
     names = class_names(a.grouping)
     manifest = Path(a.root) / a.manifest
 
+    group_split = None
+    if a.cv_folds > 0:
+        group_split = cv_group_split(load_manifest(manifest, a.grouping)["group"], a.cv_folds, a.cv_fold, a.seed)
+        print({sp: sorted(g for g, v in group_split.items() if v == sp) for sp in ("train", "val", "test")},
+              flush=True)
     ds = {s: SplitDataset(a.root, manifest, s, a.grouping,
-                          build_transform(a.img_size, s == "train", a.aug, a.aug_level))
+                          build_transform(a.img_size, s == "train", a.aug, a.aug_level), group_split)
           for s in ["train", "val", "test"]}
     cuda = device.type == "cuda"
     torch.backends.cudnn.benchmark = cuda  # autotune conv kernels for fixed-size inputs
@@ -142,6 +150,8 @@ def main():
         "args": vars(a),
         "n_params": count_params(model),
         "macs": count_macs(model, a.img_size),
+        "split_groups": ({sp: sorted(g for g, v in group_split.items() if v == sp) for sp in ("train", "val", "test")}
+                         if group_split else None),
         "best_val_macro_f1": best_f1,
         "test_acc": accuracy_score(yt, pt),
         "test_macro_f1": f1_score(yt, pt, average="macro"),
