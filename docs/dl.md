@@ -46,3 +46,23 @@ If INT8 drops macro-F1 by more than ~2 points, try `efficientnet_lite0`, more ca
 - Latency is a CPU proxy via onnxruntime, not an edge-device measurement. Say so.
 - Dataset limits: daytime, fixed passenger-side view, US vehicles, no IR; this is a domain gap vs. in-vehicle cameras.
 - Fix the seed (`--seed`) and record library versions (`pip freeze`) for reproducibility.
+
+## 4) Error analysis, improvements, quantization variants, summary
+```
+# per-image test predictions are written by train.py to runs/<name>/predictions.csv
+python -m dds_edge.dl.analyze --run mnv3_clean                       # confusion matrix, per class, per driver
+python -m dds_edge.dl.analyze --run mnv3_clean --montage talk_passenger normal   # look at the mistakes
+
+# imbalance / augmentation (one change per run)
+python -m dds_edge.dl.train ... --class_weight sqrt            # or inverse
+python -m dds_edge.dl.train ... --sampler sqrt                 # or balanced (oversample small classes)
+python -m dds_edge.dl.train ... --aug_level 2                  # stronger augmentation
+
+# quantization variants of one run (--tag keeps the files apart)
+python -m dds_edge.dl.export_quantize --run mnv3_clean --calib_method entropy --tag entropy
+python -m dds_edge.dl.export_quantize --run mnv3_clean --quant dynamic --tag dyn
+
+# one table + plot over all runs: reports/summary.csv, summary.md, summary_plot.png
+python -m dds_edge.dl.summarize
+```
+The notebooks `notebooks/colab_train.ipynb` (Vietnamese, step by step) and `notebooks/kaggle_train.ipynb` run these on a GPU.

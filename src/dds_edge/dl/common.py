@@ -44,9 +44,22 @@ def class_names(grouping: str):
     return names
 
 
-def build_transform(img_size: int, train: bool, aug: bool):
-    # NOTE: no horizontal flip on purpose. Flipping swaps left/right-hand classes
-    # (c1<->c3, c2<->c4) and would corrupt labels in the full10 setting.
+def build_transform(img_size: int, train: bool, aug: bool, aug_level: int = 1):
+    """aug_level 1 = baseline augmentation, 2 = stronger (wider crop/rotation/color, blur, random erasing).
+
+    NOTE: no horizontal flip on purpose. Flipping swaps left/right-hand classes
+    (c1<->c3, c2<->c4) and would corrupt labels in the full10 setting.
+    """
+    if train and aug and aug_level >= 2:
+        return T.Compose([
+            T.RandomResizedCrop(img_size, scale=(0.6, 1.0), ratio=(0.85, 1.2)),
+            T.RandomRotation(12),
+            T.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.3, hue=0.05),
+            T.RandomApply([T.GaussianBlur(3, sigma=(0.1, 1.5))], p=0.2),
+            T.ToTensor(),
+            T.Normalize(MEAN, STD),
+            T.RandomErasing(p=0.3, scale=(0.02, 0.15), value=0),
+        ])
     if train and aug:
         return T.Compose([
             T.RandomResizedCrop(img_size, scale=(0.8, 1.0), ratio=(0.9, 1.1)),
@@ -87,6 +100,7 @@ class SplitDataset(Dataset):
         self.root = Path(root)
         self.paths = df["path"].tolist()
         self.sources = df["source"].tolist()
+        self.groups = df["group"].tolist()
         names = class_names(grouping)
         self.labels = [names.index(c) for c in df["label"]]
         self.transform = transform

@@ -69,3 +69,44 @@ def test_preprocess_removes_duplicates_and_resizes(tmp_path):
     for p in out["path"]:
         assert Image.open(tmp_path / p).size == (32, 24)
     assert len(pd.read_csv(tmp_path / "processed" / "small" / "dedup_removed.csv")) == 2
+
+
+def _tiny_dataset(tmp_path, n_per=6):
+    """6 classes x 2 groups per split of tiny random images + a manifest (paths relative to tmp_path)."""
+    import numpy as np
+    from PIL import Image
+
+    names = ["normal", "phone", "device_ops", "eat_drink", "reach_grooming", "talk_passenger"]
+    rng = np.random.default_rng(0)
+    rows, k = [], 0
+    (tmp_path / "img").mkdir()
+    for split, groups in [("train", ["p1", "p2"]), ("val", ["p3"]), ("test", ["p4", "p5"])]:
+        for g in groups:
+            for c, name in enumerate(names):
+                for _ in range(n_per):
+                    k += 1
+                    Image.fromarray(rng.integers(0, 255, (48, 64, 3), dtype=np.uint8)).save(
+                        tmp_path / "img" / f"{k}.jpg")
+                    rows.append((f"img/{k}.jpg", name, split, g, "statefarm", f"c{c}"))
+    pd.DataFrame(rows, columns=COLUMNS).to_csv(tmp_path / "manifest.csv", index=False)
+
+
+def test_train_analyze_summarize_pipeline(tmp_path, monkeypatch):
+    _tiny_dataset(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    for extra in (["--aug_level", "2", "--sampler", "balanced", "--class_weight", "sqrt"], []):
+        subprocess.run([sys.executable, "-m", "dds_edge.dl.train", "--root", str(tmp_path),
+                        "--manifest", "manifest.csv", "--epochs", "1", "--workers", "0",
+                        "--img_size", "64", "--batch_size", "8", "--no-pretrained",
+                        "--name", "t_" + ("strong" if extra else "base"), *extra], check=True)
+    pred = pd.read_csv(tmp_path / "runs" / "t_strong" / "predictions.csv")
+    assert {"path", "group", "true", "pred", "p_normal", "p_talk_passenger"} <= set(pred.columns)
+    assert len(pred) == 2 * 6 * 6  # 2 test groups x 6 classes x 6 images
+    assert set(pred["group"]) == {"p4", "p5"}
+
+    subprocess.run([sys.executable, "-m", "dds_edge.dl.analyze", "--run", "t_strong",
+                    "--data_dir", str(tmp_path), "--montage", "normal", "phone"], check=True)
+    subprocess.run([sys.executable, "-m", "dds_edge.dl.summarize", "--out_dir", "rep"], check=True)
+    summary = pd.read_csv(tmp_path / "rep" / "summary.csv")
+    assert set(summary["run"]) == {"t_strong", "t_base"}
+    assert summary.loc[summary["run"] == "t_strong", "sampler"].iloc[0] == "balanced"

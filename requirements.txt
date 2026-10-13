@@ -8,3 +8,5 @@ onnx
 onnxruntime
 timm   # only needed for --arch efficientnet_lite0
 pytest
+matplotlib
+tabulate
