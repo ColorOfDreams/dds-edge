@@ -41,4 +41,4 @@ With a trained checkpoint available in `dds-edge-runs/`, start the upload demo:
 python -m dds_edge.dl.web_demo --run effl0_clean --runs-dir dds-edge-runs
 ```
 
-Open http://127.0.0.1:8000, then drop in a cabin image. Uploads are processed in memory only and the server is local by default.
+Open http://127.0.0.1:8000, then drop in a cabin image or select **Mở camera trực tiếp**. Camera mode samples a frame about every 0.9 seconds; uploads and camera frames are processed in memory only and the server is local by default.

@@ -76,4 +76,4 @@ The browser demo uses a saved PyTorch checkpoint directly (no extra web-framewor
 python -m dds_edge.dl.web_demo --run effl0_clean --runs-dir dds-edge-runs
 ```
 
-Open `http://127.0.0.1:8000`, upload or drag a JPG/PNG/WebP cabin frame, and review the predicted group, confidence, top-3 scores, and CPU inference time. The server is local and processes uploads in memory only.
+Open `http://127.0.0.1:8000`, upload or drag a JPG/PNG/WebP cabin frame, or select **Mở camera trực tiếp** and grant the browser camera permission. Camera mode samples a frame about every 0.9 seconds. Review the predicted group, confidence, top-3 scores, and CPU inference time. The server is local and processes uploads/camera frames in memory only.
