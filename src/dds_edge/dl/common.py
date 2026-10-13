@@ -1,6 +1,7 @@
 """Shared helpers: class groupings, transforms, dataset, model factory."""
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -93,16 +94,35 @@ MANIFEST_COLUMNS = ["path", "label", "split", "group", "source", "raw_label"]
 
 
 def load_manifest(csv_path, grouping: str) -> pd.DataFrame:
-    """Read the manifest and check that every label belongs to `grouping`."""
+    """Read the manifest. If every raw_label is known to `grouping` (State Farm c0..c9) the `label`
+    column is rebuilt from it, so the class grouping can be changed at train time without
+    regenerating the manifest; otherwise every label must already belong to `grouping`."""
     df = pd.read_csv(csv_path)
     missing = [c for c in MANIFEST_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"{csv_path}: missing columns {missing}")
+    mapping = GROUPINGS[grouping]
+    if set(df["raw_label"]) <= set(mapping):
+        df["label"] = df["raw_label"].map(mapping)
     unknown = sorted(set(df["label"]) - set(class_names(grouping)))
     if unknown:
         raise ValueError(f"{csv_path}: labels {unknown} not in grouping '{grouping}'; "
                          f"regenerate with prepare_data --grouping {grouping}")
     return df
+
+
+def coarse_map(fine: str, coarse: str):
+    """For a model trained on grouping `fine` but evaluated on grouping `coarse` (e.g. full10 -> grouped6):
+    returns (fine_names, coarse_names, M) where M[i, j] = 1 if fine class i belongs to coarse class j.
+    Probabilities of the fine classes are summed into the coarse classes with `probs @ M`."""
+    fine_names, coarse_names = class_names(fine), class_names(coarse)
+    M = np.zeros((len(fine_names), len(coarse_names)), dtype=np.float32)
+    for raw, f in GROUPINGS[fine].items():
+        c = GROUPINGS[coarse][raw]
+        i, j = fine_names.index(f), coarse_names.index(c)
+        assert M[i].sum() == 0 or M[i, j] == 1, f"'{f}' maps to several '{coarse}' classes: not a refinement"
+        M[i, j] = 1
+    return fine_names, coarse_names, M
 
 
 def cv_group_split(groups, n_folds: int, fold: int, seed: int = 42, val_frac: float = 0.18) -> dict:

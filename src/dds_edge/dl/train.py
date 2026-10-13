@@ -13,7 +13,7 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from torch.utils.data import DataLoader
 
 from dds_edge.dl.common import (SplitDataset, build_model, build_transform, class_names,
-                    count_macs, count_params, cv_group_split, load_manifest, parse_size)
+                    coarse_map, count_macs, count_params, cv_group_split, load_manifest, parse_size)
 
 
 def set_seed(s):
@@ -41,7 +41,11 @@ def main():
     ap.add_argument("--manifest", default="processed/manifest.csv", help="relative to --root")
     ap.add_argument("--arch", default="mobilenet_v3_small",
                     choices=["mobilenet_v3_small", "resnet18", "resnet50", "vgg16", "efficientnet_lite0"])
-    ap.add_argument("--grouping", default="grouped6", choices=["full10", "grouped6", "grouped5"])
+    ap.add_argument("--grouping", default="full10", choices=["full10", "grouped6", "grouped5"],
+                    help="classes to train and score on; default: the 10 original State Farm classes")
+    ap.add_argument("--eval_grouping", default=None, choices=["full10", "grouped6", "grouped5"],
+                    help="train on --grouping (e.g. full10) but score on this coarser grouping by summing "
+                         "class probabilities (e.g. grouped6); default: same as --grouping")
     ap.add_argument("--img_size", default="224",
                     help="model input: 224 (square) or WIDTHxHEIGHT such as 320x240 (native, keeps 4:3)")
     ap.add_argument("--epochs", type=int, default=10)
@@ -68,7 +72,18 @@ def main():
     set_seed(a.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     names = class_names(a.grouping)
+    eval_names, M = names, None  # names/projection used for scoring; differ only with --eval_grouping
+    if a.eval_grouping and a.eval_grouping != a.grouping:
+        _, eval_names, M = coarse_map(a.grouping, a.eval_grouping)
+        f2c = M.argmax(1)  # fine class index -> coarse class index
     manifest = Path(a.root) / a.manifest
+
+    def to_eval(y, p, probs):
+        """(true, pred, probs) in the scoring classes."""
+        if M is None:
+            return y, p, probs
+        pc = probs @ M
+        return f2c[y], pc.argmax(1), pc
 
     group_split = None
     if a.cv_folds > 0:
@@ -129,7 +144,8 @@ def main():
             n += len(y)
         sched.step()
 
-        yv, pv, _ = predict(model, dl["val"], device)
+        yv, pv, pbv = predict(model, dl["val"], device)
+        yv, pv, _ = to_eval(yv, pv, pbv)
         f1 = f1_score(yv, pv, average="macro")
         acc = accuracy_score(yv, pv)
         history.append({"epoch": ep, "train_loss": loss_sum / n, "val_acc": acc,
@@ -139,13 +155,14 @@ def main():
             best_f1 = f1
             torch.save({"state_dict": model.state_dict(), "arch": a.arch,
                         "img_size": list(parse_size(a.img_size)), "grouping": a.grouping,
-                        "class_names": names}, out / "best.pt")
+                        "eval_grouping": a.eval_grouping or a.grouping, "class_names": names}, out / "best.pt")
 
     # final test on best checkpoint
     ck = torch.load(out / "best.pt", map_location=device)
     model.load_state_dict(ck["state_dict"])
-    yt, pt, prob = predict(model, dl["test"], device)
-    labels = list(range(len(names)))
+    yt_fine, pt_fine, prob_fine = predict(model, dl["test"], device)
+    yt, pt, prob = to_eval(yt_fine, pt_fine, prob_fine)
+    names, labels = eval_names, list(range(len(eval_names)))  # everything below is in the scoring classes
     metrics = {
         "args": vars(a),
         "n_params": count_params(model),
@@ -157,6 +174,12 @@ def main():
         "test_macro_f1": f1_score(yt, pt, average="macro"),
         "test_f1_per_class": dict(zip(names, f1_score(yt, pt, average=None, labels=labels).tolist())),
     }
+    if M is not None:  # also keep the fine-grained view of the same model
+        fine = class_names(a.grouping)
+        metrics["eval_grouping"] = a.eval_grouping
+        metrics["test_macro_f1_fine"] = f1_score(yt_fine, pt_fine, average="macro")
+        metrics["test_f1_per_class_fine"] = dict(zip(fine, f1_score(
+            yt_fine, pt_fine, average=None, labels=list(range(len(fine)))).tolist()))
     pred_df = pd.DataFrame({"path": ds["test"].paths, "group": ds["test"].groups,
                             "source": ds["test"].sources, "true": [names[i] for i in yt],
                             "pred": [names[i] for i in pt]})

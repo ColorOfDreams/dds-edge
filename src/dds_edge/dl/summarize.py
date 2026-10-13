@@ -25,8 +25,10 @@ def load_runs(runs_dir: Path) -> pd.DataFrame:
                 "macs_M": m["macs"] / 1e6 if "macs" in m else None,
                 "val_macro_f1": m.get("best_val_macro_f1"),
                 "test_acc": m["test_acc"], "test_macro_f1": m["test_macro_f1"]}
-        for cls, f1 in m.get("test_f1_per_class", {}).items():
-            base[f"f1_{cls}"] = f1
+        pc = m.get("test_f1_per_class", {})
+        if pc:  # with 10 classes a per-class column each is too wide: keep only the weakest class
+            base["worst_class"] = min(pc, key=pc.get)
+            base["f1_worst"] = pc[base["worst_class"]]
         qfiles = sorted(mpath.parent.glob("quant_results*.json"))
         if not qfiles:
             rows.append({**base, "precision": "fp32"})
@@ -96,7 +98,7 @@ def main():
     df.to_csv(out / "summary.csv", index=False)
     cols = [c for c in ["run", "precision", "img_size", "params_M", "macs_M", "size_mb", "latency_ms", "fps",
                         "val_macro_f1", "test_acc", "test_macro_f1", "onnx_macro_f1", "f1_drop_vs_fp32",
-                        "f1_normal", "f1_talk_passenger"] if c in df.columns]
+                        "worst_class", "f1_worst"] if c in df.columns]
     table = df[cols].round(4)
     (out / "summary.md").write_text(table.to_markdown(index=False) if _has_tabulate() else table.to_string(index=False))
     print(table.to_string(index=False))

@@ -75,7 +75,7 @@ def main():
     ap.add_argument("--data_dir", default="data", help="folder that manifest paths are relative to")
     ap.add_argument("--statefarm_dir", default="raw/statefarm", help="relative to --data_dir")
     ap.add_argument("--img_dir", default="imgs/train", help="relative to --statefarm_dir")
-    ap.add_argument("--grouping", default="grouped6", choices=sorted(GROUPINGS))
+    ap.add_argument("--grouping", default="full10", choices=sorted(GROUPINGS))
     ap.add_argument("--val_frac", type=float, default=0.15)
     ap.add_argument("--test_frac", type=float, default=0.15)
     ap.add_argument("--seed", type=int, default=42)

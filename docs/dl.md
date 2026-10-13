@@ -77,3 +77,19 @@ python -m dds_edge.dl.web_demo --run effl0_clean --runs-dir dds-edge-runs
 ```
 
 Open `http://127.0.0.1:8000`, upload or drag a JPG/PNG/WebP cabin frame, or select **Mở camera trực tiếp** and grant the browser camera permission. Camera mode samples a frame about every 0.9 seconds. Review the predicted group, confidence, top-3 scores, and CPU inference time. The server is local and processes uploads/camera frames in memory only.
+
+## 5) Data-level class balancing (train split only; val/test untouched)
+```
+python -m dds_edge.dl.balance --mode cap  --target 2000     # undersample big classes, round-robin over drivers
+python -m dds_edge.dl.balance --mode aug  --target 2000     # add saved augmented copies to small classes
+python -m dds_edge.dl.balance --mode both --target 2000     # every class ends at 2000
+# -> processed/sf_320x240/manifest_{cap,aug,both}.csv ; train with --manifest processed/sf_320x240/manifest_cap.csv
+
+# train on the 10 original (balanced) classes, score on the 6 groups by summing probabilities
+python -m dds_edge.dl.train --grouping full10 --eval_grouping grouped6 --manifest processed/sf_320x240/manifest.csv ...
+```
+`load_manifest` rebuilds `label` from `raw_label`, so `--grouping` can be changed at train time without regenerating the manifest.
+Notebook: `notebooks/colab_balance.ipynb` (Vietnamese, one explanation per cell).
+
+Driver-level cross-validation: `train.py --cv_folds 5 --cv_fold i`, then `python -m dds_edge.dl.cv_summary --prefix <name>`.
+Demo on a few images with the INT8 model: `python -m dds_edge.dl.demo --run <run> --runs_dir <dir>`.
