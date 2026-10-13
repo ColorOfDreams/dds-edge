@@ -44,15 +44,29 @@ def class_names(grouping: str):
     return names
 
 
-def build_transform(img_size: int, train: bool, aug: bool, aug_level: int = 1):
-    """aug_level 1 = baseline augmentation, 2 = stronger (wider crop/rotation/color, blur, random erasing).
+def parse_size(v) -> tuple:
+    """Model input size as (height, width). Accepts 224 / "224" (square), "WxH" such as
+    "320x240" (width x height, same convention as preprocess --size) or a (height, width) pair."""
+    if isinstance(v, (tuple, list)):
+        return int(v[0]), int(v[1])
+    s = str(v).lower()
+    if "x" in s:
+        w, h = s.split("x")
+        return int(h), int(w)
+    return int(s), int(s)
+
+
+def build_transform(img_size, train: bool, aug: bool, aug_level: int = 1):
+    """img_size: see parse_size. aug_level 1 = baseline augmentation, 2 = stronger (wider crop/rotation/color, blur, random erasing).
 
     NOTE: no horizontal flip on purpose. Flipping swaps left/right-hand classes
     (c1<->c3, c2<->c4) and would corrupt labels in the full10 setting.
     """
+    size = parse_size(img_size)
+    base = size[1] / size[0]  # crops keep the aspect ratio of the model input
     if train and aug and aug_level >= 2:
         return T.Compose([
-            T.RandomResizedCrop(img_size, scale=(0.6, 1.0), ratio=(0.85, 1.2)),
+            T.RandomResizedCrop(size, scale=(0.6, 1.0), ratio=(0.85 * base, 1.2 * base)),
             T.RandomRotation(12),
             T.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.3, hue=0.05),
             T.RandomApply([T.GaussianBlur(3, sigma=(0.1, 1.5))], p=0.2),
@@ -62,14 +76,14 @@ def build_transform(img_size: int, train: bool, aug: bool, aug_level: int = 1):
         ])
     if train and aug:
         return T.Compose([
-            T.RandomResizedCrop(img_size, scale=(0.8, 1.0), ratio=(0.9, 1.1)),
+            T.RandomResizedCrop(size, scale=(0.8, 1.0), ratio=(0.9 * base, 1.1 * base)),
             T.RandomRotation(8),
             T.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2),
             T.ToTensor(),
             T.Normalize(MEAN, STD),
         ])
     return T.Compose([
-        T.Resize((img_size, img_size)),
+        T.Resize(size),
         T.ToTensor(),
         T.Normalize(MEAN, STD),
     ])
@@ -142,13 +156,14 @@ def count_params(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters())
 
 
-def count_macs(model: nn.Module, img_size: int) -> int:
-    """Multiply-accumulates for one 3 x img_size x img_size image (conv + linear layers only)."""
+def count_macs(model: nn.Module, img_size) -> int:
+    """Multiply-accumulates for one 3 x H x W image (conv + linear layers only); img_size: see parse_size."""
     from torch.utils.flop_counter import FlopCounterMode
     was_training = model.training
     model.eval()
     p = next(model.parameters())
-    x = torch.zeros(1, 3, img_size, img_size, device=p.device)
+    h, w = parse_size(img_size)
+    x = torch.zeros(1, 3, h, w, device=p.device)
     with torch.no_grad(), FlopCounterMode(display=False) as fc:
         model(x)
     model.train(was_training)

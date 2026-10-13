@@ -97,8 +97,9 @@ def test_train_analyze_summarize_pipeline(tmp_path, monkeypatch):
     for extra in (["--aug_level", "2", "--sampler", "balanced", "--class_weight", "sqrt"], []):
         subprocess.run([sys.executable, "-m", "dds_edge.dl.train", "--root", str(tmp_path),
                         "--manifest", "manifest.csv", "--epochs", "1", "--workers", "0",
-                        "--img_size", "64", "--batch_size", "8", "--no-pretrained",
-                        "--name", "t_" + ("strong" if extra else "base"), *extra], check=True)
+                        "--img_size", "64x48" if extra else "64", "--batch_size", "8",
+                        "--no-pretrained", "--name", "t_" + ("strong" if extra else "base"), *extra],
+                       check=True)
     pred = pd.read_csv(tmp_path / "runs" / "t_strong" / "predictions.csv")
     assert {"path", "group", "true", "pred", "p_normal", "p_talk_passenger"} <= set(pred.columns)
     assert len(pred) == 2 * 6 * 6  # 2 test groups x 6 classes x 6 images
@@ -110,3 +111,21 @@ def test_train_analyze_summarize_pipeline(tmp_path, monkeypatch):
     summary = pd.read_csv(tmp_path / "rep" / "summary.csv")
     assert set(summary["run"]) == {"t_strong", "t_base"}
     assert summary.loc[summary["run"] == "t_strong", "sampler"].iloc[0] == "balanced"
+
+
+def test_input_size_square_and_rectangular():
+    import torch
+    from PIL import Image
+    from dds_edge.dl.common import build_model, build_transform, count_macs, parse_size
+
+    assert parse_size(224) == parse_size("224") == (224, 224)
+    assert parse_size("320x240") == (240, 320)  # WIDTHxHEIGHT -> (height, width)
+    assert parse_size([240, 320]) == (240, 320)
+    img = Image.new("RGB", (320, 240))
+    for size, shape in [("224", (3, 224, 224)), ("320x240", (3, 240, 320))]:
+        for train, level in [(False, 1), (True, 1), (True, 2)]:
+            x = build_transform(size, train, True, level)(img)
+            assert tuple(x.shape) == shape
+    m = build_model("mobilenet_v3_small", 6, False)
+    assert count_macs(m, "320x240") > count_macs(m, 224)  # more pixels -> more MACs
+    assert tuple(m(torch.zeros(1, 3, 240, 320)).shape) == (1, 6)

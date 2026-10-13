@@ -27,12 +27,13 @@ from PIL import Image
 from sklearn.metrics import accuracy_score, f1_score
 
 from dds_edge.dl.common import (build_model, build_transform, class_names, count_macs, count_params,
-                                load_manifest)
+                                load_manifest, parse_size)
 
 
 def export_onnx(model, img_size, path):
     model.eval()
-    dummy = torch.randn(1, 3, img_size, img_size)
+    h, w = parse_size(img_size)
+    dummy = torch.randn(1, 3, h, w)
     kwargs = dict(input_names=["input"], output_names=["logits"], opset_version=13,
                   dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}})
     try:
@@ -104,6 +105,7 @@ def main():
     ap.add_argument("--root", default="data", help="data/ folder that manifest paths are relative to")
     ap.add_argument("--manifest", default="processed/manifest.csv", help="relative to --root")
     ap.add_argument("--run", required=True, help="run name under runs/")
+    ap.add_argument("--runs_dir", default="runs", help="folder that holds the run folders")
     ap.add_argument("--calib", type=int, default=200, help="train images used to calibrate (static)")
     ap.add_argument("--quant", default="static", choices=["static", "dynamic"])
     ap.add_argument("--calib_method", default="minmax", choices=["minmax", "entropy", "percentile"])
@@ -113,7 +115,7 @@ def main():
     ap.add_argument("--threads", type=int, default=1)
     a = ap.parse_args()
 
-    out = Path("runs") / a.run
+    out = Path(a.runs_dir) / a.run
     if not (out / "best.pt").exists():
         raise SystemExit(f"{out / 'best.pt'} not found: download/copy the checkpoint of run '{a.run}' first")
     ck = torch.load(out / "best.pt", map_location="cpu")

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-ARG_KEYS = ["arch", "epochs", "lr", "weight_decay", "label_smoothing", "class_weight", "sampler",
+ARG_KEYS = ["arch", "img_size", "epochs", "lr", "weight_decay", "label_smoothing", "class_weight", "sampler",
             "aug_level", "seed"]
 
 
@@ -88,7 +88,7 @@ def main():
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     df.to_csv(out / "summary.csv", index=False)
-    cols = [c for c in ["run", "precision", "params_M", "macs_M", "size_mb", "latency_ms", "fps",
+    cols = [c for c in ["run", "precision", "img_size", "params_M", "macs_M", "size_mb", "latency_ms", "fps",
                         "val_macro_f1", "test_acc", "test_macro_f1", "onnx_macro_f1", "f1_drop_vs_fp32",
                         "f1_normal", "f1_talk_passenger"] if c in df.columns]
     table = df[cols].round(4)

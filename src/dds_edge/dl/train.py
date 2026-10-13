@@ -13,7 +13,7 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from torch.utils.data import DataLoader
 
 from dds_edge.dl.common import (SplitDataset, build_model, build_transform, class_names,
-                    count_macs, count_params)
+                    count_macs, count_params, parse_size)
 
 
 def set_seed(s):
@@ -42,7 +42,8 @@ def main():
     ap.add_argument("--arch", default="mobilenet_v3_small",
                     choices=["mobilenet_v3_small", "resnet18", "resnet50", "vgg16", "efficientnet_lite0"])
     ap.add_argument("--grouping", default="grouped6", choices=["full10", "grouped6", "grouped5"])
-    ap.add_argument("--img_size", type=int, default=224)
+    ap.add_argument("--img_size", default="224",
+                    help="model input: 224 (square) or WIDTHxHEIGHT such as 320x240 (native, keeps 4:3)")
     ap.add_argument("--epochs", type=int, default=10)
     ap.add_argument("--batch_size", type=int, default=64)
     ap.add_argument("--lr", type=float, default=1e-3)
@@ -129,7 +130,7 @@ def main():
         if f1 > best_f1:
             best_f1 = f1
             torch.save({"state_dict": model.state_dict(), "arch": a.arch,
-                        "img_size": a.img_size, "grouping": a.grouping,
+                        "img_size": list(parse_size(a.img_size)), "grouping": a.grouping,
                         "class_names": names}, out / "best.pt")
 
     # final test on best checkpoint

@@ -57,6 +57,7 @@ python -m dds_edge.dl.analyze --run mnv3_clean --montage talk_passenger normal  
 python -m dds_edge.dl.train ... --class_weight sqrt            # or inverse
 python -m dds_edge.dl.train ... --sampler sqrt                 # or balanced (oversample small classes)
 python -m dds_edge.dl.train ... --aug_level 2                  # stronger augmentation
+python -m dds_edge.dl.train ... --img_size 320x240              # input size: 224 (square) or WIDTHxHEIGHT, keeps 4:3
 
 # quantization variants of one run (--tag keeps the files apart)
 python -m dds_edge.dl.export_quantize --run mnv3_clean --calib_method entropy --tag entropy
