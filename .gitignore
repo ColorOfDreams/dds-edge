@@ -14,3 +14,5 @@ reports/*.log
 reports/*.out
 reports/*.toc
 drive/
+# Colab runs downloaded from Drive (zips are 1 GB+; keep local)
+dds-edge-runs/
