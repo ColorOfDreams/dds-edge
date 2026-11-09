@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drivefocus"
+version = "0.1.0"
+description = "DriveFocus edge: driver monitoring algorithms, simulator and demo"
+requires-python = ">=3.10"
+dependencies = ["numpy", "pyyaml"]
+
+[project.optional-dependencies]
+vision = ["opencv-python", "mediapipe"]
+dev = ["pytest"]
+
+[project.scripts]
+drivefocus-demo = "drivefocus.demo:main"
+drivefocus-replay = "drivefocus.replay:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+drivefocus = ["default_config.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

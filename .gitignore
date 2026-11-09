@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+# mô hình và ảnh mẫu tải về, đầu ra khi chạy
+edge/models/*.task
+edge/models/samples/
+edge/out/
+gateway-data/
+*.sqlite
+
+# Dependencies and temporary Office lock files
+node_modules/
+~$*

@@ -1,0 +1,47 @@
+# DriveFocus DF-Cloud, chạy cạnh Traffic-SM.
+#
+# Cần chạy Traffic-SM trước (nó tạo mạng traffic-system_traffic-network):
+#   cd traffic-SM && docker compose up -d && docker compose --profile analytics up -d clickhouse
+# Tạo bảng sự kiện một lần:
+#   docker exec -i traffic-system-clickhouse-1 clickhouse-client --user traffic --password traffic --multiquery < clickhouse/df.sql
+# Rồi:
+#   cd drivefocus/cloud && docker compose up -d --build
+#
+# Không có Traffic-SM: tạo mạng rỗng rồi dùng máy chủ nhận dữ liệu giả lập
+#   docker network create traffic-system_traffic-network
+#   INGEST_URL=http://mock-ingest:18080/v1/ingest CLICKHOUSE_URL= docker compose --profile mock up -d --build
+name: drivefocus
+
+services:
+  gateway:
+    build: .
+    image: drivefocus-gateway:dev
+    environment:
+      INGEST_URL: ${INGEST_URL:-http://location-service:8080/v1/ingest}
+      CLICKHOUSE_URL: ${CLICKHOUSE_URL-http://clickhouse:8123}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-traffic}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-traffic}
+    ports:
+      - "18099:8099"
+    volumes:
+      - gateway-data:/data
+    networks:
+      - traffic
+    restart: unless-stopped
+
+  mock-ingest:
+    profiles: ["mock"]
+    image: drivefocus-gateway:dev
+    command: ["python", "-m", "drivefocus_cloud.mock_ingest", "--host", "0.0.0.0", "--port", "18080"]
+    ports:
+      - "18080:18080"
+    networks:
+      - traffic
+
+networks:
+  traffic:
+    external: true
+    name: traffic-system_traffic-network
+
+volumes:
+  gateway-data:

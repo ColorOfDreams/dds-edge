@@ -1,0 +1,42 @@
+[
+  {
+    "type": "EYES_CLOSED",
+    "level": 4,
+    "ts_start": "2026-01-01T00:00:17.800Z",
+    "ts_end": "2026-01-01T00:00:20.933Z",
+    "duration_ms": 3133,
+    "distance_m": 43.5,
+    "speed_kmh_avg": 50.0,
+    "speed_kmh_max": 50.0
+  },
+  {
+    "type": "LOOK_AWAY",
+    "level": 4,
+    "ts_start": "2026-01-01T00:00:26.200Z",
+    "ts_end": "2026-01-01T00:00:32.466Z",
+    "duration_ms": 6267,
+    "distance_m": 87.0,
+    "speed_kmh_avg": 50.0,
+    "speed_kmh_max": 50.0
+  },
+  {
+    "type": "PERCLOS_HIGH",
+    "level": 2,
+    "ts_start": "2026-01-01T00:00:20.066Z",
+    "ts_end": "2026-01-01T00:00:38.666Z",
+    "duration_ms": 18600,
+    "distance_m": 258.3,
+    "speed_kmh_avg": 50.0,
+    "speed_kmh_max": 50.0
+  },
+  {
+    "type": "PHONE",
+    "level": 3,
+    "ts_start": "2026-01-01T00:00:39.666Z",
+    "ts_end": "2026-01-01T00:00:43.066Z",
+    "duration_ms": 3400,
+    "distance_m": 47.2,
+    "speed_kmh_avg": 50.0,
+    "speed_kmh_max": 50.0
+  }
+]

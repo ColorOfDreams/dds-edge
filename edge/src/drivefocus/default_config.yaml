@@ -1,0 +1,80 @@
+# Cấu hình mặc định của DriveFocus (khớp docs/hld/04-thuat-toan-va-muc-canh-bao.md, mục 4.9).
+# Mọi giá trị là KHỞI ĐIỂM, chưa được hiệu chỉnh bằng dữ liệu thật.
+config_version: 2
+
+moving:
+  enter_kmh: 10.0
+  enter_hold_s: 3.0
+  exit_kmh: 3.0
+  exit_hold_s: 5.0
+  gps_loss_hold_s: 30.0
+  imu_vibration_thresh: 0.15     # ngưỡng phương sai gia tốc (g) coi là xe đang chạy
+
+observation:
+  min_eye_width_px: 20.0
+  eye_min_brightness: 25.0       # vùng mắt tối tuyệt đối (thiếu sáng) thì KHÔNG BIẾT
+  eye_dark_ratio: 0.25           # vùng mắt chỉ sáng bằng 25% da má trở xuống (kính râm) thì KHÔNG BIẾT; mắt mở thật ~0,45, mi nhắm ~0,8-1,0 (đo trên 1 ảnh, cần dữ liệu thật)
+                                 # (không dùng độ tương phản: mi mắt nhắm là vùng da phẳng, phải vẫn quan sát được)
+  unknown_reset_s: 1.0           # KHÔNG BIẾT kéo dài hơn mức này thì reset đoạn nhắm mắt
+
+eyes:
+  ear_closed_ratio: 0.5          # EAR_norm dưới mức này là nhắm
+  ear_closed_abs_fallback: 0.15  # dùng trước khi hiệu chỉnh xong
+  calibration_s: 60.0
+  baseline_range: [0.15, 0.45]   # baseline ngoài khoảng này bị coi là không hợp lệ
+  closure_gap_tolerance_s: 0.2
+  perclos_window_s: 60.0
+  perclos_min_valid_fraction: 0.8
+  closed_s: [0.5, 1.0, 2.0, 3.0]       # mức 1..4; mức 4 = 3 giây theo yêu cầu
+  perclos: [0.10, 0.15, 0.20]          # mức 1..3
+
+mouth:
+  mar_yawn: 0.62
+  yawn_min_s: 1.5
+  yawn_window_s: 600.0
+  yawn_count: [2, 4]                   # mức 1, mức 2
+  yawn_event_s: 2.0
+
+head:
+  neutral_min_speed_kmh: 30.0
+  neutral_min_s: 60.0
+  neutral_memory_s: 360.0
+  yaw_deg: 30.0
+  pitch_down_deg: 25.0
+  uncalibrated_factor: 1.5             # nới ngưỡng khi chưa hiệu chỉnh trung tính
+  nod_delta_deg: 15.0
+  nod_window_s: 1.0
+  nod_hold_s: 3.0
+  slump_pitch_deg: 20.0
+
+gaze:
+  enabled: false                       # cờ phụ, mặc định tắt
+  score_thresh: 0.2
+
+hands:
+  near_ear_k: 0.6                      # khoảng cách tay-tai / chiều rộng mặt
+  near_mouth_k: 0.7
+  min_s: 1.5
+  decay_per_s: 0.3
+
+attention_budget:
+  t_empty_s: 6.0
+  weights: {look_away: 1.0, phone: 1.5, mouth: 0.7}
+  recovery_factor: [1.25, 5.0]
+  levels: [0.75, 0.58, 0.33]           # A dưới ngưỡng thì mức 1,2,3; A = 0 là mức 4
+
+no_face_s: [5.0, 15.0]                 # mức 2, mức 3 (khi xe chạy)
+
+speed_scaling:
+  enabled: false                       # thí nghiệm tùy chọn, mặc định TẮT
+  v_ref_kmh: 50.0
+  min_factor: 0.5
+
+fsm:
+  down_hold_s: [1.0, 1.0, 2.0, 3.0]    # giữ bao lâu thì hạ một mức, theo mức hiện tại 1..4
+  event_end_hold_s: 1.0
+
+context:
+  overspeed_margin_kmh: 10.0
+  congested_relax: 1.25
+  congested_speed_kmh: 15.0
